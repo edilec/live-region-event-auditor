@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "1",
+  "capture": {
+    "id": "checkout-journey-regression",
+    "source": "dom-mutation-record",
+    "recordedAt": "2026-09-12",
+    "recording": "complete"
+  },
+  "regions": [
+    {
+      "id": "cart-status",
+      "role": "status",
+      "ariaLive": null,
+      "presentAtStart": true
+    },
+    {
+      "id": "form-errors",
+      "role": "status",
+      "ariaLive": null,
+      "presentAtStart": true
+    },
+    {
+      "id": "save-progress",
+      "role": null,
+      "ariaLive": "polite",
+      "presentAtStart": false,
+      "insertedAtStep": "03-fix-and-submit"
+    }
+  ],
+  "steps": [
+    {
+      "name": "01-open-checkout",
+      "updates": [
+        {
+          "region": "cart-status",
+          "text": "Item added to your basket",
+          "atMs": 300
+        },
+        {
+          "region": "cart-status",
+          "text": "Item added to your basket",
+          "atMs": 500
+        }
+      ]
+    },
+    {
+      "name": "02-submit-empty",
+      "updates": [
+        {
+          "region": "form-errors",
+          "text": "There is a problem",
+          "atMs": 1200
+        }
+      ]
+    },
+    {
+      "name": "03-fix-and-submit",
+      "updates": [
+        {
+          "region": "save-progress",
+          "text": "Saving your details",
+          "atMs": 4800
+        }
+      ]
+    }
+  ]
+}

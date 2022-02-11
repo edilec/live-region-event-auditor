@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1",
+  "duplicateWindowMs": 1000,
+  "maxUpdatesPerStep": 5,
+  "maxRecordingAgeDays": 90,
+  "regions": {
+    "cart-status": { "politeness": "polite" },
+    "form-errors": { "politeness": "assertive" },
+    "save-progress": { "politeness": "polite" }
+  },
+  "steps": [
+    {
+      "name": "02-submit-empty",
+      "exhaustive": true,
+      "expect": [{ "region": "form-errors", "text": "There is a problem" }]
+    },
+    {
+      "name": "03-fix-and-submit",
+      "expect": [{ "region": "cart-status", "text": "Order placed" }]
+    }
+  ]
+}
