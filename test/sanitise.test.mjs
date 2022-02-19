@@ -169,7 +169,7 @@ test('a LONG update is not an update that shows nothing', async (t) => {
 
   await t.test('showsSomething separates the two questions directly', () => {
     assert.equal(showsSomething('x'.repeat(5000)), true)
-    assert.equal(showsSomething('‎'.repeat(5000)), false)
+    assert.equal(showsSomething('\u200e'.repeat(5000)), false)
     assert.equal(showsSomething(null), false)
     assert.equal(showsSomething(undefined), false)
     assert.equal(isRenderableString('x'.repeat(5000)), false, 'an identifier that long is still refused')

@@ -15,8 +15,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { auditJourney, byCodeUnit } from '../src/index.mjs'
-import { NOW } from './helpers.mjs'
+import { auditJourney, byCodeUnit, compareFindings } from '../src/index.mjs'
+import { NOW, auditMutated, stepNamed } from './helpers.mjs'
 
 /** No age limit; the only thing in play is the order of the findings. */
 const EXPECTATIONS = {
@@ -142,4 +142,60 @@ test('the duplicate walk is ordered by recorded time, not by the order in the fi
   // listed "Loading" between them.
   assert.equal(report.summary.duplicateUpdates, 1)
   assert.match(report.findings[0].message, /100ms apart/u)
+})
+
+test('each sort key decides on its own, and none of them is decoration', async (t) => {
+  // A mutation sweep found three of the four keys undefended: every finding in
+  // a run comes from one file, and the message key happened to order the
+  // fixtures the same way the pointer key did, so dropping either changed
+  // nothing observable. The keys are asserted directly, one at a time.
+  const finding = (file, pointer, ruleId, message) => ({
+    ruleId,
+    severity: 'error',
+    message,
+    location: { file, pointer },
+  })
+
+  await t.test('file decides first', () => {
+    const a = finding('Zebra.json', '/z', 'z-rule', 'z')
+    const b = finding('apple.json', '/a', 'a-rule', 'a')
+    assert.equal(compareFindings(a, b), -1, 'Z before a by code unit, whatever the other keys say')
+    assert.equal(compareFindings(b, a), 1)
+  })
+
+  await t.test('pointer decides when the file is the same', () => {
+    const a = finding('x.json', '/a-b', 'z-rule', 'zzz')
+    const b = finding('x.json', '/a_b', 'a-rule', 'aaa')
+    assert.equal(compareFindings(a, b), -1, '- before _ by code unit, whatever the other keys say')
+    assert.equal(compareFindings(b, a), 1)
+  })
+
+  await t.test('rule id decides when the file and pointer are the same', () => {
+    const a = finding('x.json', '/same', 'MAX_DUPLICATE_URLS', 'zzz')
+    const b = finding('x.json', '/same', 'MAX_DUPLICATE_URL_ENTRIES', 'aaa')
+    assert.equal(compareFindings(a, b), -1, 'S before _ by code unit')
+    assert.equal(compareFindings(b, a), 1)
+  })
+
+  await t.test('message decides when everything else is the same', () => {
+    const a = finding('x.json', '/same', 'same-rule', 'Zebra')
+    const b = finding('x.json', '/same', 'same-rule', 'apple')
+    assert.equal(compareFindings(a, b), -1)
+    assert.equal(compareFindings(b, a), 1)
+    assert.equal(compareFindings(a, { ...a }), 0)
+  })
+
+  await t.test('a run really can emit two findings that differ only in message', async () => {
+    // Two repeats of the same text in one step land on one pointer with one
+    // rule id, so the message key is reachable.
+    const report = await auditMutated((journey) => {
+      const step = stepNamed(journey, '03-fix-and-submit')
+      step.updates.push({ region: 'cart-status', text: 'Order placed', atMs: 5400 })
+      step.updates.push({ region: 'cart-status', text: 'Order placed', atMs: 5500 })
+    })
+    const repeats = report.findings.filter((entry) => entry.ruleId === 'duplicate-update')
+    assert.equal(repeats.length, 2)
+    assert.equal(new Set(repeats.map((entry) => entry.location.pointer)).size, 1)
+    assert.deepEqual(repeats.map((entry) => /same text twice (\d+)ms apart/u.exec(entry.message)[1]), ['100', '100'])
+  })
 })
