@@ -109,6 +109,7 @@ export {
   pointerToken,
   sanitize,
   severityFor,
+  showsSomething,
   sortFindings,
   statusFor,
 } from './rules.mjs'

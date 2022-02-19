@@ -245,6 +245,21 @@ export function isRenderableString(value, limit = MAX_ID_LENGTH) {
   return typeof value === 'string' && value.length <= limit && sanitize(value, limit) !== ''
 }
 
+/**
+ * Whether a string would show anything at all once the unsafe characters are
+ * removed, with no opinion about its length.
+ *
+ * This is deliberately separate from `isRenderableString`. That one answers a
+ * question about an IDENTIFIER, where a length cap is part of what makes the
+ * value usable. Asking it about prose conflates two different failures: an
+ * update longer than the cap is not an update that shows nothing, and reporting
+ * it as one is a confident false accusation about the interface. Length here is
+ * bounded by the document size limit and by nothing else.
+ */
+export function showsSomething(value) {
+  return typeof value === 'string' && sanitize(value, Number.MAX_SAFE_INTEGER) !== ''
+}
+
 /** A number as a report prints it. */
 export function num(value) {
   if (!Number.isFinite(value)) return describeValue(value)

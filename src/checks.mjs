@@ -20,7 +20,7 @@
  * the comparison incomplete; it does not make the comparison clean.
  */
 
-import { at, byCodeUnit, isRenderableString, makeFinding, msg, num } from './rules.mjs'
+import { at, byCodeUnit, makeFinding, msg, num, showsSomething } from './rules.mjs'
 import {
   KNOWN_ROLES,
   SUPPORTED_SOURCE,
@@ -31,7 +31,6 @@ import {
 } from './journey.mjs'
 import { parseInstant } from './policy.mjs'
 
-const MAX_TEXT = 500
 const DAY_MS = 86400000
 
 /**
@@ -370,9 +369,11 @@ export function checkJourney({ journey, policy, file, now }) {
           where,
           { suggestion: 'Record the text the region held after the change, using null when it was emptied.' },
         ))
-      } else if (!isRenderableString(update.text, MAX_TEXT)) {
-        // Not a length check: text of bidi controls or C1 characters has a
-        // non-zero length, survives trim(), and shows nothing.
+      } else if (!showsSomething(update.text)) {
+        // Not a length check in either direction: text of bidi controls or C1
+        // characters has a non-zero length, survives trim(), and shows nothing
+        // -- while text LONGER than any cap shows plenty, and calling that one
+        // empty would be a false accusation.
         findings.push(makeFinding(
           'update-text-empty',
           msg`An update to ${update.region} in step ${step.name} left it showing no text at all.`,

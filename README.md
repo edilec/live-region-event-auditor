@@ -188,9 +188,9 @@ comparison walks each region's updates **in recorded-time order**, not in the
 order the file listed them, and every repeat is counted: `summary.duplicateUpdates`
 carries the total and there is one finding per repeat.
 
-Text is compared exactly. An update whose text or time was not recorded is left
-out of the comparison and reported, because "not comparable" is not "not a
-repeat".
+Text is compared exactly, at any length. An update whose text or time was not
+recorded is left out of the comparison and reported, because "not comparable" is
+not "not a repeat".
 
 ## The expectations
 
@@ -352,9 +352,14 @@ is incomplete.
 
 Exceeding a limit is an incomplete result naming the limit. It is never a silent
 truncation and never a pass. Bounds that are not configurable: an id or step
-name is at most 128 characters, update text is compared up to 500 characters,
-`unreadableRegions` holds at most 200 entries, and the expectations document
-itself is at most 262144 bytes.
+name is at most 128 characters, `unreadableRegions` holds at most 200 entries,
+and the expectations document itself is at most 262144 bytes.
+
+Update text is **not** length-capped beyond `maxJourneyBytes`, in either the
+repeat comparison or the emptiness check. An update longer than any cap shows
+plenty, and reporting it as empty would be a confident false accusation about
+the interface. `evidence` in a finding is a bounded excerpt at 200 characters,
+which is a bound on the report rather than on the document.
 
 ## Safety of the report
 

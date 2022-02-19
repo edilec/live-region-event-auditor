@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { describeValue, isRenderableString, renderReport, sanitize } from '../src/index.mjs'
+import { describeValue, isRenderableString, renderReport, sanitize, showsSomething } from '../src/index.mjs'
 import { auditMutated, findingsFor, ruleIds, stepNamed } from './helpers.mjs'
 
 const CLASSES = [
@@ -134,4 +134,44 @@ test('a long value is bounded rather than echoed whole', () => {
   const out = sanitize(long)
   assert.equal(out.length, 200)
   assert.ok(out.endsWith('...'))
+})
+
+test('a LONG update is not an update that shows nothing', async (t) => {
+  // The emptiness question and the length question are different, and merging
+  // them produced a false accusation: an update past an internal cap was
+  // reported as leaving the region showing nothing at all. Length here is
+  // bounded by the document size limit and by nothing else.
+  await t.test('update text of 2000 characters passes', async () => {
+    const report = await auditMutated((journey) => {
+      stepNamed(journey, '03-fix-and-submit')
+        .updates.find((update) => update.region === 'save-progress').text = 'Saving your details. '.repeat(100)
+    })
+    assert.equal(report.status, 'pass')
+    assert.equal(findingsFor(report, 'update-text-empty').length, 0)
+  })
+
+  await t.test('a long expected text still matches exactly', async () => {
+    const long = 'Saving your details. '.repeat(100)
+    const report = await auditMutated(
+      (journey) => {
+        stepNamed(journey, '03-fix-and-submit')
+          .updates.find((update) => update.region === 'save-progress').text = long
+      },
+      {
+        expectations: (expectations) => {
+          const step = expectations.steps.find((entry) => entry.name === '03-fix-and-submit')
+          step.expect.push({ region: 'save-progress', text: long })
+        },
+      },
+    )
+    assert.equal(report.status, 'pass')
+  })
+
+  await t.test('showsSomething separates the two questions directly', () => {
+    assert.equal(showsSomething('x'.repeat(5000)), true)
+    assert.equal(showsSomething('‎'.repeat(5000)), false)
+    assert.equal(showsSomething(null), false)
+    assert.equal(showsSomething(undefined), false)
+    assert.equal(isRenderableString('x'.repeat(5000)), false, 'an identifier that long is still refused')
+  })
 })
