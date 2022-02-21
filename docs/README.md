@@ -68,3 +68,23 @@ fails when it is made:
 | give `effectivePoliteness` a default for an unknown role | an undetermined urgency becomes a confident one |
 | swap `byCodeUnit` for a collator | ordering becomes machine-dependent |
 | move the position branch ahead of the quoting branch in `parseFailureDetail` | a document reading `at position 1` is sliced back into the message |
+| give `showsSomething` a length cap again | an update longer than the cap is reported as leaving the region showing nothing |
+| replace any one of the four sort keys with `0` | ordering stops being what the README documents |
+| drop the `UNREADABLE_REASONS` or `RECORDING_STATES` check | a typo is accepted as a documented value, and a partial recording reads as complete |
+
+## What the sweep is, and what it found
+
+The sweep is mechanical, and the enumeration rather than the adjective is what
+is worth reporting. Four categories, derived from the source text rather than
+from a list somebody thought of:
+
+- every entry in `EVIDENCE_MISSING_RULES`, deleted (27)
+- every severity in `RULE_SEVERITY`, flipped one step (34)
+- every named guard, refusal or validation in `src/`, neutered (61)
+- the ordering primitive given a collator, and each sort key dropped (6)
+
+The run over this tree was 128 mutations. Eight survived, none of them an
+equivalent mutant: the repeat walk's filter on updates with no recorded time or
+text, the named required keys of a region record, the `capture.recording` value
+check, the unreadable-reason check, the sanitising of a suggestion, and three of
+the four sort keys. Each now has a test that fails when the guard is removed.
