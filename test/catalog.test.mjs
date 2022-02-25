@@ -9,11 +9,11 @@
  */
 
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readFile, readdir } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import test from 'node:test'
 
-import { CATALOG, DEFAULT_LIMITS, POLITENESS_VALUES, REFUSED_POLICY_KEYS } from '../src/index.mjs'
+import { CATALOG, TOOL_ID, DEFAULT_LIMITS, POLITENESS_VALUES, REFUSED_POLICY_KEYS } from '../src/index.mjs'
 import { ROOT } from './helpers.mjs'
 
 async function readme() {
@@ -105,4 +105,24 @@ test('the count of warning-severity evidence-missing rules the README states is 
   const warnings = CATALOG.evidenceMissing.filter((ruleId) => CATALOG.severity[ruleId] === 'warning')
   assert.equal(warnings.length, 11)
   assert.match(text, /The eleven `warning` rules marked `yes`/u)
+})
+
+test('TOOL_ID is the directory name, the package name and the tool field of the report', async () => {
+  const directory = basename(ROOT)
+  assert.equal(TOOL_ID, 'live-region-event-auditor')
+  assert.equal(TOOL_ID, directory, 'the exported id and the directory must not drift apart')
+  const manifest = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'))
+  assert.equal(manifest.name, TOOL_ID)
+  assert.equal(Object.keys(manifest.bin)[0], TOOL_ID)
+  assert.deepEqual(manifest.dependencies, undefined, 'zero runtime dependencies')
+  assert.deepEqual(manifest.devDependencies, undefined, 'zero dev dependencies')
+})
+
+test('nothing in the source can reach the network', async () => {
+  const sources = await readdir(join(ROOT, 'src'))
+  const forbidden = /node:(net|http|https|dns|tls|dgram)|\bfetch\(|XMLHttpRequest|WebSocket/u
+  for (const name of [...sources.map((file) => join('src', file)), join('bin', `${TOOL_ID}.mjs`)]) {
+    const text = await readFile(join(ROOT, name), 'utf8')
+    assert.equal(forbidden.test(text), false, `${name} must not reach the network`)
+  }
 })
