@@ -183,10 +183,30 @@ is reported as not checked. It is never assumed to be polite.
 ## Repeats
 
 Two updates are a repeat when they name the same region, carry the same text,
-and their recorded times are no more than `duplicateWindowMs` apart. The
-comparison walks each region's updates **in recorded-time order**, not in the
-order the file listed them, and every repeat is counted: `summary.duplicateUpdates`
-carries the total and there is one finding per repeat.
+and their recorded times are no more than `duplicateWindowMs` apart. That is a
+predicate over **pairs**, and the comparison is over pairs: for each update,
+every earlier update to the same region still inside the window, whatever was
+written in between. Time-adjacent pairs alone are not the rule — `A` at 1200,
+`B` at 1400, `A` at 1600 inside a 1000ms window holds one repeat, and a status
+region that cycles between two messages is exactly that shape.
+
+The comparison walks each region's updates **in recorded-time order**, not in
+the order the file listed them, and every repeat is counted:
+`summary.duplicateUpdates` carries the total and there is one finding per
+repeat. Four updates carrying one text inside the window are six repeats, not
+three.
+
+`summary.duplicateUpdates` is always the exact total. Naming them one by one is
+what is bounded: a repeat is a pair, so one text written *n* times inside the
+window holds *n(n-1)/2* of them, while the recording is bounded only by
+`maxJourneyBytes`. Past **1000** named repeats the rest are not listed
+individually and `duplicate-enumeration-truncated` says so, which makes the run
+incomplete — the count is still exact, and the truncation is never silent.
+
+`duplicate-enumeration-truncated` is the one limit rule here that does **not**
+mean nothing was checked: `region-limit-exceeded`, `step-limit-exceeded`,
+`step-update-limit-exceeded` and `journey-too-large` all stop the check, while
+this one says the check ran and the listing stopped.
 
 Text is compared exactly, at any length. An update whose text or time was not
 recorded is left out of the comparison and reported, because "not comparable" is
@@ -236,6 +256,7 @@ exit 2, whatever the rule's own severity is.
 | --- | --- | --- |
 | `capture-source-unsupported` | error | yes |
 | `duplicate-region-id` | error | yes |
+| `duplicate-enumeration-truncated` | error | yes |
 | `duplicate-update` | error | no |
 | `expected-region-not-captured` | warning | yes |
 | `expected-update-missing` | error | no |
@@ -332,10 +353,16 @@ produce byte-identical stdout.
 
 ## The clock
 
-Nothing here reads the wall clock on its own behalf. `maxRecordingAgeDays` is
-compared against `--now`, which defaults to the system clock and takes
-`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SSZ`. Passing it makes an age-checking run
-reproducible; the examples pass it for that reason.
+There is exactly one clock reading in this tool: the default of the `now`
+parameter, which the CLI fills from `--now` when `--now` is given. Nothing else
+here consults a clock, and no check has a hidden second reading.
+
+`maxRecordingAgeDays` is compared against that value, which takes `YYYY-MM-DD` or
+`YYYY-MM-DDTHH:MM:SSZ`. So a run that omits `--now` **is not reproducible**
+whenever the expectations set `maxRecordingAgeDays`: the staleness verdict is then a
+function of the day the run happened, and re-running it tomorrow can change the
+exit code. Pass `--now` to make an age-checking run reproducible. The shipped
+examples and every test pass it for that reason.
 
 ## Limits
 
@@ -349,6 +376,10 @@ reproducible; the examples pass it for that reason.
 default, because it is a statement about the interface as much as about the
 size of the document. A step that exceeds it is not checked at all and the run
 is incomplete.
+
+The number of repeats **named individually** is capped at 1000, which is not
+configurable. `summary.duplicateUpdates` still carries the exact total, and
+`duplicate-enumeration-truncated` names the cap when it is reached.
 
 Exceeding a limit is an incomplete result naming the limit. It is never a silent
 truncation and never a pass. Bounds that are not configurable: an id or step

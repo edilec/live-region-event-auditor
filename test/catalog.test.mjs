@@ -67,8 +67,25 @@ test('every refused policy key is named in the README', async () => {
 
 test('every politeness value and recording state the code accepts is documented', async () => {
   const text = await readme()
-  for (const value of POLITENESS_VALUES) assert.match(text, new RegExp(`\`?${value}\`?`, 'u'), value)
+  // The backticks are REQUIRED, not optional. Writing them as `\`?${value}\`?`
+  // made both of them optional, which degrades the pattern to a bare substring
+  // search: `off` then matches inside "offer" or "of the", so it could not fail
+  // for any plausible README and was not a check at all. The refused-key test
+  // above already requires the backticked form; this now matches it, and the
+  // test below proves the pattern can fail.
+  for (const value of POLITENESS_VALUES) assert.match(text, new RegExp(`\`${value}\``, 'u'), value)
   for (const state of CATALOG.recordingStates) assert.match(text, new RegExp(`"${state}"`, 'u'), state)
+})
+
+test('the politeness check would fail on a document that only mentions the word', async () => {
+  // The guard for the guard. A document holding "offer", "politeness" and
+  // "assertiveness" names none of the three values, and the pattern above has
+  // to say so; the pattern it replaces matched all three.
+  const decoy = 'An offer, some politeness and a little assertiveness.'
+  for (const value of POLITENESS_VALUES) {
+    assert.doesNotMatch(decoy, new RegExp(`\`${value}\``, 'u'), value)
+    assert.match(decoy, new RegExp(value, 'u'), `${value} really is present as a bare substring`)
+  }
 })
 
 test('the README does not claim a capability this tool refuses to have', async () => {

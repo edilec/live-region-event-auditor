@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { EVIDENCE_MISSING_RULES, RULE_SEVERITY, auditJourney, severityFor } from '../src/index.mjs'
+import { EVIDENCE_MISSING_RULES, RULE_SEVERITY, auditJourney, severityFor, statusFor } from '../src/index.mjs'
 import {
   NOW,
   auditMutated,
@@ -92,6 +92,12 @@ const REACHED_BY_MUTATION = {
 
 /** ruleId -> an expectations change that produces it. */
 const REACHED_BY_EXPECTATIONS = {
+  // Forty-six updates carrying one text inside the window hold 1035 repeats,
+  // past the 1000 this run names one by one. It reaches the rule through the
+  // expectations because the per-step limit has to be raised to get there.
+  'duplicate-enumeration-truncated': (expectations) => {
+    expectations.maxUpdatesPerStep = 60
+  },
   'expected-region-not-captured': (expectations) => {
     expectations.regions['toast-host'] = { politeness: 'assertive' }
   },
@@ -112,6 +118,21 @@ const REACHED_BY_EXPECTATIONS = {
   },
 }
 
+/**
+ * A recording mutation some expectations-reached rules need as well.
+ *
+ * Raising `maxUpdatesPerStep` alone reaches nothing; the repeats have to be in
+ * the document too.
+ */
+const EXTRA_MUTATION = {
+  'duplicate-enumeration-truncated': (journey) => {
+    const step = stepNamed(journey, '03-fix-and-submit')
+    for (let index = 0; index < 45; index += 1) {
+      step.updates.push({ region: 'cart-status', text: 'Order placed', atMs: 5300 + index + 1 })
+    }
+  },
+}
+
 test('every evidence-missing rule really makes the run incomplete', async (t) => {
   for (const [ruleId, mutate] of Object.entries(REACHED_BY_MUTATION)) {
     await t.test(`${ruleId} (${severityFor(ruleId)})`, async () => {
@@ -129,7 +150,7 @@ test('every evidence-missing rule really makes the run incomplete', async (t) =>
 
   for (const [ruleId, mutate] of Object.entries(REACHED_BY_EXPECTATIONS)) {
     await t.test(`${ruleId} (${severityFor(ruleId)})`, async () => {
-      const report = await auditMutated(null, { expectations: mutate })
+      const report = await auditMutated(EXTRA_MUTATION[ruleId] ?? null, { expectations: mutate })
       assert.ok(ruleIds(report).includes(ruleId), `expected ${ruleId}, got ${ruleIds(report).join(', ')}`)
       assert.equal(report.status, 'incomplete')
       if (severityFor(ruleId) === 'warning') {
@@ -243,6 +264,15 @@ test('missing evidence outranks a defect: half a journey is not a verdict on the
 test('exactly eleven evidence-missing rules are warnings, and the list is the only guard for those', () => {
   const warnings = EVIDENCE_MISSING_RULES.filter((ruleId) => RULE_SEVERITY[ruleId] === 'warning')
   assert.equal(warnings.length, 11)
+  // The second clause, asserted rather than merely stated. For each of those
+  // eleven the ONLY difference between an incomplete run and a green one is
+  // membership of the list: the severity is held identical on both sides, so
+  // nothing else can be what decides it. Removing a rule from the list makes
+  // the left-hand call return what the right-hand call returns here.
+  for (const ruleId of warnings) {
+    assert.equal(statusFor([{ ruleId, severity: 'warning' }]), 'incomplete', ruleId)
+    assert.equal(statusFor([{ ruleId: `${ruleId}-not-in-the-list`, severity: 'warning' }]), 'pass', ruleId)
+  }
 })
 
 test('a pass on no evidence at all is not reachable', async () => {

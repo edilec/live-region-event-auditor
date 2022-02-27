@@ -36,6 +36,7 @@ export const SEVERITIES = Object.freeze(['error', 'warning', 'info'])
 export const RULE_SEVERITY = Object.freeze({
   'capture-source-unsupported': 'error',
   'duplicate-region-id': 'error',
+  'duplicate-enumeration-truncated': 'error',
   'duplicate-update': 'error',
   'expected-region-not-captured': 'warning',
   'expected-update-missing': 'error',
@@ -88,6 +89,7 @@ export const RULE_IDS = Object.freeze(Object.keys(RULE_SEVERITY).sort(byCodeUnit
  */
 export const EVIDENCE_MISSING_RULES = Object.freeze([
   'capture-source-unsupported',
+  'duplicate-enumeration-truncated',
   'duplicate-region-id',
   'expected-region-not-captured',
   'journey-age-unknown',

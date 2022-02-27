@@ -56,16 +56,89 @@ test('duplicate updates are counted', async (t) => {
     assert.equal(duplicates[0].evidence, 'gap 300ms, window 1000ms')
   })
 
-  await t.test('every repeat is counted, not just the first', async () => {
+  await t.test('every repeat is counted, not just the time-adjacent ones', async () => {
+    // The README states the rule as a predicate over PAIRS, and this is what
+    // that means: four updates carrying one text inside the window hold six
+    // pairs, not three. The body of this test asserted three, which is the
+    // count of TIME-ADJACENT pairs -- the defect, written down as the expected
+    // behaviour under a name that states the honest rule.
     const report = await auditMutated((journey) => {
       const step = stepNamed(journey, '03-fix-and-submit')
       step.updates.push({ region: 'cart-status', text: 'Order placed', atMs: 5400 })
       step.updates.push({ region: 'cart-status', text: 'Order placed', atMs: 5500 })
       step.updates.push({ region: 'cart-status', text: 'Order placed', atMs: 5600 })
     })
-    assert.equal(report.summary.duplicateUpdates, 3)
-    assert.equal(findingsFor(report, 'duplicate-update').length, 3)
+    assert.equal(report.summary.duplicateUpdates, 6)
+    assert.equal(findingsFor(report, 'duplicate-update').length, 6)
   })
+
+  await t.test('a repeat with different text between its halves is still a repeat', async () => {
+    // A@1200, B@1400, A@1600, all inside a 1000ms window: two updates naming
+    // one region with one text, 400ms apart. This reported duplicateUpdates 0
+    // and exited 0, because the halves were not adjacent in TIME. Moving the
+    // identical texts next to each other made the same tool report the repeat,
+    // so the verdict turned on the interleaving, which the rule never mentions.
+    const loose = (expectations) => { expectations.steps[0].exhaustive = false }
+    const report = await auditMutated((journey) => {
+      stepNamed(journey, '02-submit-empty').updates = [
+        { region: 'form-errors', text: 'There is a problem', atMs: 1200 },
+        { region: 'form-errors', text: 'Checking', atMs: 1400 },
+        { region: 'form-errors', text: 'There is a problem', atMs: 1600 },
+      ]
+    }, { expectations: loose })
+    assert.equal(report.status, 'fail')
+    assert.equal(report.summary.duplicateUpdates, 1)
+    const repeats = findingsFor(report, 'duplicate-update')
+    assert.equal(repeats.length, 1)
+    assert.match(repeats[0].message, /same text twice 400ms apart/u)
+
+    const interleavedPairs = await auditMutated((journey) => {
+      stepNamed(journey, '02-submit-empty').updates = [
+        { region: 'form-errors', text: 'There is a problem', atMs: 1000 },
+        { region: 'form-errors', text: 'Checking', atMs: 1100 },
+        { region: 'form-errors', text: 'There is a problem', atMs: 1200 },
+        { region: 'form-errors', text: 'Checking', atMs: 1300 },
+      ]
+    }, { expectations: loose })
+    assert.equal(interleavedPairs.summary.duplicateUpdates, 2, 'A,B,A,B is two repeats, one per text')
+  })
+
+  await t.test(
+    'more repeats than this run names one by one is reported, never truncated silently',
+    async () => {
+      // A repeat is a pair, so the number of them is quadratic in how many
+      // times one text was written inside the window, while the recording is
+      // bounded only by maxJourneyBytes. Forty-six updates hold 1035 pairs.
+      // The COUNT stays exact; the enumeration stops at the limit and says so,
+      // and saying so is what makes the run incomplete rather than a fail that
+      // quietly listed some of the evidence.
+      const report = await auditMutated((journey) => {
+        const step = stepNamed(journey, '03-fix-and-submit')
+        for (let index = 0; index < 45; index += 1) {
+          step.updates.push({ region: 'cart-status', text: 'Order placed', atMs: 5300 + index + 1 })
+        }
+      }, { expectations: (expectations) => { expectations.maxUpdatesPerStep = 60 } })
+      assert.equal(report.summary.duplicateUpdates, 1035)
+      assert.equal(findingsFor(report, 'duplicate-update').length, 1000)
+      assert.equal(report.status, 'incomplete')
+      const truncated = findingsFor(report, 'duplicate-enumeration-truncated')
+      assert.equal(truncated.length, 1)
+      assert.equal(truncated[0].evidence, 'named 1000 of 1035')
+
+      const cli = await runCli(
+        await (async () => {
+          const journey = await cleanJourney()
+          const step = stepNamed(journey, '03-fix-and-submit')
+          for (let index = 0; index < 45; index += 1) {
+            step.updates.push({ region: 'cart-status', text: 'Order placed', atMs: 5300 + index + 1 })
+          }
+          return journey
+        })(),
+        { ...(await cleanExpectations()), maxUpdatesPerStep: 60 },
+      )
+      assert.equal(cli.code, 2, 'a limit reached is exit 2, not a fail that listed part of it')
+    },
+  )
 
   await t.test('the window is what decides, and it comes from the expectations', async () => {
     const spaced = (journey) => {

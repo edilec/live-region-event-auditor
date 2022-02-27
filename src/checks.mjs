@@ -34,6 +34,17 @@ import { parseInstant } from './policy.mjs'
 const DAY_MS = 86400000
 
 /**
+ * How many repeats one run names one by one.
+ *
+ * A repeat is a PAIR, so the number of them is quadratic in how many times one
+ * text was written to one region inside the window, while the recording itself
+ * is only bounded by `limits.maxJourneyBytes`. The total is always counted
+ * exactly; this bounds the enumeration, and exceeding it is reported rather
+ * than truncated silently.
+ */
+export const MAX_DUPLICATE_FINDINGS = 1000
+
+/**
  * Build the region index, and decide whether the recording can answer "that
  * did not happen".
  *
@@ -204,6 +215,24 @@ function checkPoliteness(region, policy, file, findings) {
  * repeat at all, because the two were no longer adjacent. The sort keys are
  * three integers -- the time, the step's position in the recording, and the
  * update's position in the step -- so no string comparison decides it.
+ *
+ * Time order alone was not enough, and that was the second defect: comparing
+ * only TIME-ADJACENT pairs missed every repeat with different text in between,
+ * which is the ordinary shape of a status region that cycles. A@1200,
+ * B@1400, A@1600 inside a 1000ms window reported `duplicateUpdates: 0` and
+ * exited 0. The rule the README states is a predicate over PAIRS, so the
+ * comparison is over pairs: for each update, every earlier update to the same
+ * region that is still inside the window. Entries are in non-decreasing time
+ * order, so a two-pointer walk finds the first one inside the window and
+ * everything from there to the current entry is in it.
+ *
+ * The count is exact whatever the recording holds -- it is `current - first`,
+ * not the length of the enumeration. Listing the pairs is what is bounded: a
+ * region written with one text n times inside the window holds n(n-1)/2 of
+ * them, and a 4MiB recording can make that number enormous. Past
+ * MAX_DUPLICATE_FINDINGS the pairs stop being named one by one and
+ * `duplicate-enumeration-truncated` says so, which makes the run incomplete.
+ * The contract's rule for a limit: never a silent truncation, and never a pass.
  */
 function checkDuplicates(timeline, policy, file, findings) {
   const byRegion = new Map()
@@ -221,25 +250,51 @@ function checkDuplicates(timeline, policy, file, findings) {
   }
 
   let repeats = 0
+  let named = 0
   for (const regionId of [...byRegion.keys()].sort(byCodeUnit)) {
-    const entries = byRegion.get(regionId)
-    for (let index = 1; index < entries.length; index += 1) {
-      const previous = entries[index - 1]
-      const current = entries[index]
-      if (current.update.text !== previous.update.text) continue
-      const gap = current.update.atMs - previous.update.atMs
-      if (gap > policy.duplicateWindowMs) continue
-      repeats += 1
-      findings.push(makeFinding(
-        'duplicate-update',
-        msg`Region ${regionId} was updated with the same text twice ${num(gap)}ms apart, inside the ${num(policy.duplicateWindowMs)}ms window the expectations set: once in step ${previous.step.name} and again in step ${current.step.name}.`,
-        at(file, pointerFor('steps', current.step.name, 'updates', regionId)),
-        {
-          evidence: `gap ${num(gap)}ms, window ${num(policy.duplicateWindowMs)}ms`,
-          suggestion: 'Write the region once per change, or change the text when the state really changed.',
-        },
-      ))
+    // Grouped by text, so the window walk below compares only updates that are
+    // already candidates. The groups keep the time order of the region's list.
+    const byText = new Map()
+    for (const entry of byRegion.get(regionId)) {
+      if (!byText.has(entry.update.text)) byText.set(entry.update.text, [])
+      byText.get(entry.update.text).push(entry)
     }
+
+    for (const text of [...byText.keys()].sort(byCodeUnit)) {
+      const group = byText.get(text)
+      let first = 0
+      for (let current = 1; current < group.length; current += 1) {
+        while (group[current].update.atMs - group[first].update.atMs > policy.duplicateWindowMs) first += 1
+        repeats += current - first
+        if (named >= MAX_DUPLICATE_FINDINGS) continue
+        for (let earlier = first; earlier < current; earlier += 1) {
+          if (named >= MAX_DUPLICATE_FINDINGS) break
+          named += 1
+          const gap = group[current].update.atMs - group[earlier].update.atMs
+          findings.push(makeFinding(
+            'duplicate-update',
+            msg`Region ${regionId} was updated with the same text twice ${num(gap)}ms apart, inside the ${num(policy.duplicateWindowMs)}ms window the expectations set: once in step ${group[earlier].step.name} and again in step ${group[current].step.name}.`,
+            at(file, pointerFor('steps', group[current].step.name, 'updates', regionId)),
+            {
+              evidence: `gap ${num(gap)}ms, window ${num(policy.duplicateWindowMs)}ms`,
+              suggestion: 'Write the region once per change, or change the text when the state really changed.',
+            },
+          ))
+        }
+      }
+    }
+  }
+
+  if (named < repeats) {
+    findings.push(makeFinding(
+      'duplicate-enumeration-truncated',
+      msg`This recording holds ${num(repeats)} repeat(s) and only the first ${num(named)} are named one by one; summary.duplicateUpdates counts every one of them, and the rest were not listed.`,
+      at(file, pointerFor('steps')),
+      {
+        evidence: `named ${num(named)} of ${num(repeats)}`,
+        suggestion: 'Narrow duplicateWindowMs, or split the recording, to have every repeat named individually.',
+      },
+    ))
   }
   return repeats
 }
@@ -461,19 +516,41 @@ export function checkJourney({ journey, policy, file, now }) {
         matched.add(hit)
         continue
       }
-      // Absence is only evidence when the recording holds everything.
-      const unverifiable = !index.complete || unusableSteps.has(step.name) || !index.byId.has(entry.region)
+      // Absence is only evidence when the recording holds everything -- and
+      // "everything" includes the TEXT of the updates this step DID make. A
+      // step that writes to the expected region with no recorded text has not
+      // failed to write it; nobody wrote down what it wrote. Asserting
+      // `expected-update-missing` there is an error-severity accusation that
+      // the interface omitted an update, in the same report that emits
+      // `update-text-not-captured` about that very update. The gate below is
+      // the same one the sibling tool applies to a declared error whose id the
+      // index could not resolve.
+      const textUnknown = entry.text !== null && step.updates.some((update, candidate) => (
+        !matched.has(candidate) && update.region === entry.region && !update.textCaptured
+      ))
+      const recordingIncomplete = !index.complete
+        || unusableSteps.has(step.name)
+        || !index.byId.has(entry.region)
+
+      let ruleId = 'expected-update-missing'
+      let message = msg`Step ${step.name} records no update to ${entry.region} matching expectation ${num(position)}.`
+      let suggestion = 'Write the region when this step happens, or drop the expectation.'
+      if (textUnknown) {
+        ruleId = 'update-unverifiable'
+        message = msg`Step ${step.name} does write to ${entry.region}, and the text of that update was not recorded, so whether it carried what expectation ${num(position)} names was not established.`
+        suggestion = 'Record the text the region held after the change, using null when it was emptied.'
+      } else if (recordingIncomplete) {
+        ruleId = 'update-unverifiable'
+        message = msg`Step ${step.name} records no update to ${entry.region} matching expectation ${num(position)}, but this recording does not hold every change, so its absence was not treated as evidence that it never happened.`
+        suggestion = 'Export a complete recording, or observe the subtree this region lives in.'
+      }
       findings.push(makeFinding(
-        unverifiable ? 'update-unverifiable' : 'expected-update-missing',
-        unverifiable
-          ? msg`Step ${step.name} records no update to ${entry.region} matching expectation ${num(position)}, but this recording does not hold every change, so its absence was not treated as evidence that it never happened.`
-          : msg`Step ${step.name} records no update to ${entry.region} matching expectation ${num(position)}.`,
+        ruleId,
+        message,
         at(file, pointerFor('steps', step.name, 'updates', entry.region)),
         {
           evidence: entry.text === null ? 'any text' : `expected text: ${entry.text}`,
-          suggestion: unverifiable
-            ? 'Export a complete recording, or observe the subtree this region lives in.'
-            : 'Write the region when this step happens, or drop the expectation.',
+          suggestion,
         },
       ))
     }

@@ -71,7 +71,7 @@ import {
   readJourney,
 } from './journey.mjs'
 
-export { ageChecks, buildIndex, checkJourney } from './checks.mjs'
+export { MAX_DUPLICATE_FINDINGS, ageChecks, buildIndex, checkJourney } from './checks.mjs'
 export {
   ConfigError,
   DEFAULT_LIMITS,

@@ -185,17 +185,29 @@ test('each sort key decides on its own, and none of them is decoration', async (
     assert.equal(compareFindings(a, { ...a }), 0)
   })
 
-  await t.test('a run really can emit two findings that differ only in message', async () => {
-    // Two repeats of the same text in one step land on one pointer with one
-    // rule id, so the message key is reachable.
+  await t.test('a run really can emit findings the message key alone orders', async () => {
+    // Repeats of one text in one step land on one pointer with one rule id, so
+    // the message is the only key left to decide their order.
+    //
+    // The gaps are chosen so that three orders are all different: the order
+    // they are generated in (20, 120, 100), their numeric order (20, 100, 120)
+    // and their code-unit order as text ('100' < '120' < '20'). Only the last
+    // one passes here. The body this replaces pushed two updates 100ms apart
+    // and asserted ['100', '100'] -- two findings whose messages were
+    // BYTE-IDENTICAL, so the assertion held whatever the message key did, or
+    // did not do.
     const report = await auditMutated((journey) => {
       const step = stepNamed(journey, '03-fix-and-submit')
-      step.updates.push({ region: 'cart-status', text: 'Order placed', atMs: 5400 })
-      step.updates.push({ region: 'cart-status', text: 'Order placed', atMs: 5500 })
+      step.updates.push({ region: 'cart-status', text: 'Order placed', atMs: 5320 })
+      step.updates.push({ region: 'cart-status', text: 'Order placed', atMs: 5420 })
     })
     const repeats = report.findings.filter((entry) => entry.ruleId === 'duplicate-update')
-    assert.equal(repeats.length, 2)
+    assert.equal(repeats.length, 3)
     assert.equal(new Set(repeats.map((entry) => entry.location.pointer)).size, 1)
-    assert.deepEqual(repeats.map((entry) => /same text twice (\d+)ms apart/u.exec(entry.message)[1]), ['100', '100'])
+    assert.equal(new Set(repeats.map((entry) => entry.message)).size, 3, 'three distinct messages')
+    assert.deepEqual(
+      repeats.map((entry) => /same text twice (\d+)ms apart/u.exec(entry.message)[1]),
+      ['100', '120', '20'],
+    )
   })
 })
