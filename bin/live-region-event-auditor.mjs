@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { ConfigError, auditJourney, exitCodeFor, formatSummary, parseInstant, renderReport } from '../src/index.mjs'
+import { ConfigError, auditJourney, exitCodeFor, formatSummary, parseInstant, renderReport, sanitize } from '../src/index.mjs'
 
 const HELP = `live-region-event-auditor
 
@@ -74,7 +74,10 @@ function parseArguments(argv) {
       const instant = parseInstant(raw)
       if (!instant.ok) throw new Error('--now requires YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ')
       options.now = instant.ms
-    } else throw new Error(`Unknown option "${argument}"`)
+    // The option text is argv, which this tool did not write either: a newline
+    // or a bidi control in it would forge lines in the diagnostic below just as
+    // one in the expectations document would.
+    } else throw new Error(`Unknown option "${sanitize(argument, 64)}"`)
   }
 
   if (options.journey === null) throw new Error('--journey is required')

@@ -17,7 +17,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { describeValue, isRenderableString, renderReport, sanitize, showsSomething } from '../src/index.mjs'
-import { auditMutated, findingsFor, ruleIds, stepNamed } from './helpers.mjs'
+import { auditMutated, cleanExpectations, cleanJourney, findingsFor, ruleIds, runCli, runCliRaw, stepNamed } from './helpers.mjs'
 
 const CLASSES = [
   ['C0', '\u0001'],
@@ -31,6 +31,110 @@ const CLASSES = [
   ['bidi RLO', '\u202e'],
   ['bidi isolate', '\u2066'],
 ]
+
+/** Every class above, as a code point rather than as a name. */
+const UNSAFE = /[\p{Cc}\p{Cf}\u2028\u2029]/u
+
+test('a configuration diagnostic crosses the same boundary as a report', async (t) => {
+  // A ConfigError message goes to stderr, and the name it prints came out of
+  // the expectations document. These were the strings in this tool that skipped
+  // `sanitize`: the unknown-key lists, and -- worse -- region ids and step
+  // names, which are echoed into most of validatePolicy's messages. stdout
+  // stays empty and the exit code stays 2 either way, which is why it went
+  // unnoticed.
+  for (const [name, character] of CLASSES) {
+    await t.test(`a region id carrying ${name}`, async () => {
+      const expectations = await cleanExpectations()
+      expectations.regions[`cart${character}status`] = { politeness: 'not-a-value' }
+      const result = await runCli(await cleanJourney(), expectations)
+      assert.equal(result.code, 2)
+      assert.equal(result.stdout, '', 'a configuration error carries no report')
+      assert.equal(result.stderr.split('\n').length, 2, `${name}: one line, one terminator`)
+      assert.ok(!UNSAFE.test(result.stderr.replace(/\n$/u, '')), name)
+      assert.match(result.stderr, /"regions\.cart status\.politeness" must be one of/u)
+    })
+  }
+
+  await t.test('a step name is on the same boundary', async () => {
+    const expectations = await cleanExpectations()
+    expectations.steps.push({ name: '03-fix\u2028and-submit', expect: [{ region: 'cart-status' }], exhaustive: 'no' })
+    const result = await runCli(await cleanJourney(), expectations)
+    assert.equal(result.code, 2)
+    assert.equal(result.stdout, '')
+    assert.equal(result.stderr.split('\n').length, 2)
+    assert.match(result.stderr, /"steps\.03-fix and-submit\.exhaustive" must be true or false\./u)
+  })
+
+  await t.test('an unknown expectations key is on the same boundary', async () => {
+    const expectations = await cleanExpectations()
+    expectations['bad\u0085key'] = 1
+    const result = await runCli(await cleanJourney(), expectations)
+    assert.equal(result.code, 2)
+    assert.equal(result.stderr.split('\n').length, 2)
+    assert.match(result.stderr, /Unknown expectation key\(s\): bad key\./u)
+  })
+
+  await t.test('an unknown CLI option is on the same boundary', async () => {
+    const result = await runCliRaw(['--journey', 'x.json', '--not\u0085an\u202eoption'])
+    assert.equal(result.code, 2)
+    assert.equal(result.stdout, '')
+    // The usage text that follows legitimately has newlines, so the assertion
+    // is about the diagnostic line itself: it must be one line, and it must
+    // still be the whole of the first line.
+    const [diagnostic, ...rest] = result.stderr.split('\n')
+    assert.equal(diagnostic, 'Unknown option "--not an option"', 'argv is untrusted input too')
+    assert.equal(rest[0], '', 'the diagnostic is one line, then a blank line, then the usage text')
+    assert.ok(!UNSAFE.test(diagnostic))
+  })
+
+  await t.test('a name that renders as nothing is named, not printed as a gap', async () => {
+    const expectations = await cleanExpectations()
+    expectations['\u0001\u200e'] = 1
+    const result = await runCli(await cleanJourney(), expectations)
+    assert.equal(result.code, 2)
+    assert.match(result.stderr, /\(a name that renders as nothing\)/u)
+  })
+})
+
+test('an expected text that would render as nothing is a configuration error', async (t) => {
+  // The "validate what you will render" row of the contract's table, in a
+  // policy value. `typeof entry.text === 'string'` accepted a text of stripped
+  // characters, compared it, and rendered it into the evidence as nothing:
+  // exit 1, status fail, evidence "expected text:" and nothing after it -- a
+  // failure nobody can act on. The region id and the step name were already
+  // refused on this ground; the text was not.
+  for (const [name, character] of CLASSES) {
+    await t.test(`an expected text of only ${name}`, async () => {
+      const expectations = await cleanExpectations()
+      expectations.steps[1].expect = [{ region: 'cart-status', text: character }]
+      const result = await runCli(await cleanJourney(), expectations)
+      assert.equal(result.code, 2, `${name}: a configuration error, not a failure with blank evidence`)
+      assert.equal(result.stdout, '', 'a configuration error carries no report')
+      assert.match(result.stderr, /has a "text" that renders as nothing/u)
+    })
+  }
+
+  await t.test('the empty string is refused on the same ground', async () => {
+    const expectations = await cleanExpectations()
+    expectations.steps[1].expect = [{ region: 'cart-status', text: '' }]
+    const result = await runCli(await cleanJourney(), expectations)
+    assert.equal(result.code, 2)
+    assert.match(result.stderr, /has a "text" that renders as nothing/u)
+  })
+
+  await t.test('a text longer than any id cap is still accepted: length is not the question', async () => {
+    // `showsSomething`, not `isRenderableString`. Expected text is compared
+    // exactly at any length, so capping it here would refuse a legitimate
+    // expectation -- the opposite false answer to the one above.
+    const long = 'x'.repeat(2000)
+    const expectations = await cleanExpectations()
+    expectations.steps[1].expect = [{ region: 'cart-status', text: long }]
+    const result = await runCli(await cleanJourney(), expectations)
+    assert.equal(result.code, 1, 'the expectation is checked, and this recording does not meet it')
+    const report = JSON.parse(result.stdout)
+    assert.deepEqual(ruleIds(report), ['expected-update-missing'])
+  })
+})
 
 test('every unsafe class is stripped, not only C0 and the separators', () => {
   for (const [name, character] of CLASSES) {

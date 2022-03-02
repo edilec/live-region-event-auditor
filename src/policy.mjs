@@ -12,7 +12,7 @@
  * that omits a key it needs is refused rather than quietly defaulted.
  */
 
-import { isRenderableString } from './rules.mjs'
+import { isRenderableString, sanitize, showsSomething } from './rules.mjs'
 
 export class ConfigError extends Error {
   constructor(message) {
@@ -71,6 +71,26 @@ const KNOWN_KEYS = Object.freeze([
 
 const KNOWN_STEP_KEYS = Object.freeze(['name', 'exhaustive', 'expect'])
 
+/**
+ * An untrusted name as a diagnostic prints it.
+ *
+ * A `ConfigError` message reaches stderr, and these names come from a document
+ * this tool did not write. `sanitize` is the single boundary every untrusted
+ * string crosses, and a configuration diagnostic is not an exception to it: a
+ * newline in a region id or a step name forges a line in the message, U+0085
+ * forges one in any terminal that honours NEL, and U+202E reverses everything
+ * printed after it.
+ *
+ * `isRenderableString` is not a substitute. It only asks whether SOMETHING
+ * would render, so a step name of "a\u2028b" passes it and then carries the
+ * separator into the message unchanged. This is the "validate what you will
+ * render" rule: the check and the rendering have to look at the same form.
+ */
+function shown(value) {
+  const flat = sanitize(value, 64)
+  return flat === '' ? '(a name that renders as nothing)' : flat
+}
+
 export function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -110,7 +130,8 @@ export function validatePolicy(document) {
   const unknown = Object.keys(document).filter((key) => !KNOWN_KEYS.includes(key)).sort()
   if (unknown.length > 0) {
     throw new ConfigError(
-      `Unknown expectation key(s): ${unknown.join(', ')}. Known keys: ${[...KNOWN_KEYS].sort().join(', ')}.`,
+      `Unknown expectation key(s): ${unknown.map(shown).join(', ')}. `
+      + `Known keys: ${[...KNOWN_KEYS].sort().join(', ')}.`,
     )
   }
 
@@ -123,14 +144,16 @@ export function validatePolicy(document) {
     if (!isRenderableString(regionId, 128)) {
       throw new ConfigError('A key in "regions" is not a usable region id.')
     }
-    if (!isRecord(expectation)) throw new ConfigError(`"regions.${regionId}" must be a JSON object.`)
+    if (!isRecord(expectation)) throw new ConfigError(`"regions.${shown(regionId)}" must be a JSON object.`)
     const extra = Object.keys(expectation).filter((key) => key !== 'politeness').sort()
     if (extra.length > 0) {
-      throw new ConfigError(`"regions.${regionId}" has unknown key(s): ${extra.join(', ')}. Known key: politeness.`)
+      throw new ConfigError(
+        `"regions.${shown(regionId)}" has unknown key(s): ${extra.map(shown).join(', ')}. Known key: politeness.`,
+      )
     }
     if (!POLITENESS_VALUES.includes(expectation.politeness)) {
       throw new ConfigError(
-        `"regions.${regionId}.politeness" must be one of: ${POLITENESS_VALUES.join(', ')}.`,
+        `"regions.${shown(regionId)}.politeness" must be one of: ${POLITENESS_VALUES.join(', ')}.`,
       )
     }
     regions.set(regionId, { politeness: expectation.politeness })
@@ -143,29 +166,50 @@ export function validatePolicy(document) {
     if (!isRecord(raw)) throw new ConfigError('A step in "steps" is not a JSON object.')
     const extra = Object.keys(raw).filter((key) => !KNOWN_STEP_KEYS.includes(key)).sort()
     if (extra.length > 0) {
-      throw new ConfigError(`A step has unknown key(s): ${extra.join(', ')}. Known keys: ${KNOWN_STEP_KEYS.join(', ')}.`)
+      throw new ConfigError(
+        `A step has unknown key(s): ${extra.map(shown).join(', ')}. Known keys: ${KNOWN_STEP_KEYS.join(', ')}.`,
+      )
     }
     if (!isRenderableString(raw.name, 128)) throw new ConfigError('A step has no usable "name".')
-    if (seenSteps.has(raw.name)) throw new ConfigError(`"steps" names ${raw.name} more than once.`)
+    if (seenSteps.has(raw.name)) throw new ConfigError(`"steps" names ${shown(raw.name)} more than once.`)
     seenSteps.add(raw.name)
     if (Object.hasOwn(raw, 'exhaustive') && typeof raw.exhaustive !== 'boolean') {
-      throw new ConfigError(`"steps.${raw.name}.exhaustive" must be true or false.`)
+      throw new ConfigError(`"steps.${shown(raw.name)}.exhaustive" must be true or false.`)
     }
-    if (!Array.isArray(raw.expect)) throw new ConfigError(`"steps.${raw.name}.expect" must be an array.`)
+    if (!Array.isArray(raw.expect)) throw new ConfigError(`"steps.${shown(raw.name)}.expect" must be an array.`)
     const expect = []
     for (const entry of raw.expect) {
-      if (!isRecord(entry)) throw new ConfigError(`An expectation in step ${raw.name} is not a JSON object.`)
+      if (!isRecord(entry)) throw new ConfigError(`An expectation in step ${shown(raw.name)} is not a JSON object.`)
       const extraKeys = Object.keys(entry).filter((key) => !['region', 'text'].includes(key)).sort()
       if (extraKeys.length > 0) {
         throw new ConfigError(
-          `An expectation in step ${raw.name} has unknown key(s): ${extraKeys.join(', ')}. Known keys: region, text.`,
+          `An expectation in step ${shown(raw.name)} has unknown key(s): ${extraKeys.map(shown).join(', ')}. `
+          + 'Known keys: region, text.',
         )
       }
       if (!isRenderableString(entry.region, 128)) {
-        throw new ConfigError(`An expectation in step ${raw.name} has no usable "region".`)
+        throw new ConfigError(`An expectation in step ${shown(raw.name)} has no usable "region".`)
       }
-      if (Object.hasOwn(entry, 'text') && typeof entry.text !== 'string') {
-        throw new ConfigError(`An expectation in step ${raw.name} has a "text" that is not a string.`)
+      if (Object.hasOwn(entry, 'text')) {
+        if (typeof entry.text !== 'string') {
+          throw new ConfigError(`An expectation in step ${shown(raw.name)} has a "text" that is not a string.`)
+        }
+        // `showsSomething`, not `typeof` and not `isRenderableString`. The
+        // expected text is compared exactly at any length -- so a length cap is
+        // the wrong question for it -- and it is printed into the finding's
+        // evidence, so "is this usable" has to be asked about the RENDERED
+        // form. A text of U+0001, U+0085 or U+200E passed `typeof`, was
+        // compared, and then rendered as "expected text:" with nothing after
+        // it: an exit 1 failure whose evidence line says nothing. The region
+        // id and the step name are already refused on the same ground.
+        if (!showsSomething(entry.text)) {
+          throw new ConfigError(
+            `An expectation in step ${shown(raw.name)} has a "text" that renders as nothing. `
+            + 'Expected text is compared exactly and printed in the finding, so a value made only of '
+            + 'characters that are stripped from output would produce a finding nobody can act on. '
+            + 'Give the text the region should hold, or leave "text" out to accept any text.',
+          )
+        }
       }
       expect.push({ region: entry.region, text: Object.hasOwn(entry, 'text') ? entry.text : null })
     }
@@ -193,7 +237,7 @@ export function validatePolicy(document) {
     const unknownLimits = Object.keys(document.limits).filter((key) => !Object.hasOwn(DEFAULT_LIMITS, key)).sort()
     if (unknownLimits.length > 0) {
       throw new ConfigError(
-        `Unknown limit(s): ${unknownLimits.join(', ')}. Known limits: ${LIMIT_NAMES.join(', ')}.`,
+        `Unknown limit(s): ${unknownLimits.map(shown).join(', ')}. Known limits: ${LIMIT_NAMES.join(', ')}.`,
       )
     }
     for (const key of LIMIT_NAMES) {
