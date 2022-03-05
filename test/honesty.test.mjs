@@ -49,6 +49,24 @@ test('a recorded update is never called an announcement', async (t) => {
     )
   })
 
+  await t.test('a finding may not be built from a raw string at all', () => {
+    // This guard is the whole of the enforcement above. FORBIDDEN_CLAIMS is
+    // checked INSIDE `msg`, so a call site handing `makeFinding` a plain string
+    // would bypass the check completely -- and the resulting finding carries no
+    // `message` field at all, which the report contract requires. Duck-typing
+    // is refused too: the check is `instanceof`, not "has a text property".
+    assert.throws(
+      () => makeFinding('duplicate-update', 'A screen reader announced it twice.', { file: 'j.json' }),
+      /must build its message with the msg tagged template/u,
+    )
+    assert.throws(
+      () => makeFinding('duplicate-update', { text: 'a message-shaped object' }, { file: 'j.json' }),
+      /must build its message with the msg tagged template/u,
+    )
+    const built = makeFinding('duplicate-update', msg`A message built the one permitted way.`, { file: 'j.json' })
+    assert.equal(built.message, 'A message built the one permitted way.')
+  })
+
   await t.test('a line break cannot hide a forbidden phrase from the check', () => {
     assert.throws(
       () => msg`The message was read
@@ -152,6 +170,38 @@ test('what the recording could not observe is explicit', async (t) => {
     assert.equal(partial.status, 'incomplete')
     assert.ok(ruleIds(partial).includes('update-unverifiable'))
     assert.ok(!ruleIds(partial).includes('expected-update-missing'))
+  })
+
+  await t.test('an update whose text nobody recorded stops absence being evidence for it', async () => {
+    // The step DOES write to the expected region. What was not established is
+    // what the write carried. Reporting `expected-update-missing` there is an
+    // error-severity accusation that the interface omitted an update, in the
+    // same report that emits `update-text-not-captured` about that very
+    // update -- the tool's own "absence is only evidence when the recording
+    // holds everything" broken in the report that reports the gap.
+    const report = await auditMutated((journey) => {
+      const update = stepNamed(journey, '03-fix-and-submit')
+        .updates.find((entry) => entry.region === 'cart-status')
+      delete update.text
+    })
+    assert.equal(report.status, 'incomplete')
+    assert.ok(ruleIds(report).includes('update-text-not-captured'))
+    assert.ok(ruleIds(report).includes('update-unverifiable'))
+    assert.ok(
+      !ruleIds(report).includes('expected-update-missing'),
+      'an update this run says it cannot read may not also be reported as absent',
+    )
+    const gap = findingsFor(report, 'update-unverifiable')[0]
+    assert.match(gap.message, /does write to cart-status, and the text of that update was not recorded/u)
+
+    // The control, from the same document: with the text recorded and wrong,
+    // the expectation really is missing, and the tool says so and exits 1.
+    const wrong = await auditMutated((journey) => {
+      stepNamed(journey, '03-fix-and-submit')
+        .updates.find((entry) => entry.region === 'cart-status').text = 'Something else'
+    })
+    assert.equal(wrong.status, 'fail')
+    assert.ok(ruleIds(wrong).includes('expected-update-missing'))
   })
 
   await t.test('a step that went past the per-step limit stops absence being evidence in that step', async () => {
