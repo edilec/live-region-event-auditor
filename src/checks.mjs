@@ -356,6 +356,30 @@ export function checkJourney({ journey, policy, file, now }) {
     ))
   }
 
+  // Which regions the expectations say an update to is meant to carry
+  // something, and which clause says so.
+  //
+  // `off` is a declaration, not a mistake. `aria-live="off"` says updates here
+  // are not to be presented, and ARIA gives `role="timer"` and `role="marquee"`
+  // that same implicit urgency -- a timer whose text never changes is not a
+  // timer, and a countdown that ticks every second would have been a defect at
+  // error severity, exit 1, on markup the specification describes. So writing
+  // to an off region is not a defect on its own: it is a defect against
+  // something the expectations SAY, and every judgement this tool makes comes
+  // from the expectations. A region the expectations declare `off`, or say
+  // nothing about at all, is the team's deliberate choice and is left alone.
+  const expectedToCarry = new Map()
+  for (const [regionId, expectation] of policy.regions) {
+    if (expectation.politeness !== 'off') expectedToCarry.set(regionId, `regions.${regionId} expects ${expectation.politeness}`)
+  }
+  for (const expectation of policy.steps) {
+    for (const entry of expectation.expect) {
+      if (!expectedToCarry.has(entry.region)) {
+        expectedToCarry.set(entry.region, `step ${expectation.name} expects an update to it`)
+      }
+    }
+  }
+
   // Everything recorded, in one list. `checkDuplicates` orders it by recorded
   // time before walking it; nothing else depends on the order here.
   const timeline = []
@@ -429,6 +453,7 @@ export function checkJourney({ journey, policy, file, now }) {
         // characters has a non-zero length, survives trim(), and shows nothing
         // -- while text LONGER than any cap shows plenty, and calling that one
         // empty would be a false accusation.
+        //
         findings.push(makeFinding(
           'update-text-empty',
           msg`An update to ${update.region} in step ${step.name} left it showing no text at all.`,
@@ -446,12 +471,15 @@ export function checkJourney({ journey, policy, file, now }) {
         ))
       }
 
-      if (politeness.get(update.region) === 'off') {
+      if (politeness.get(update.region) === 'off' && expectedToCarry.has(update.region)) {
         findings.push(makeFinding(
           'region-off-with-updates',
-          msg`Region ${update.region} resolves to off, yet step ${step.name} writes to it, so the change carries no urgency at all.`,
+          msg`Region ${update.region} resolves to off, yet step ${step.name} writes to it and the expectations say that update is meant to carry something.`,
           where,
-          { suggestion: 'Give the region polite or assertive urgency, or stop writing to it.' },
+          {
+            evidence: `expected to carry: ${expectedToCarry.get(update.region)}`,
+            suggestion: 'Give the region polite or assertive urgency, stop writing to it, or drop the expectation.',
+          },
         ))
       }
     }
