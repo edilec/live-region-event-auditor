@@ -45,8 +45,10 @@ const EXPECTED = [
 ]
 
 async function reportOver(ids) {
-  // Each region resolves to `off` and is then written to, so each produces
-  // exactly one finding, at a pointer built from its own id.
+  // Each region resolves to `off` and is then written to where the expectations
+  // name an update to it, so each produces exactly one finding, at a pointer
+  // built from its own id. The expectation matches the recorded update (no
+  // `text`, so any text matches), which is what keeps the count at one.
   const journey = {
     schemaVersion: '1',
     capture: { id: 'ordering', source: 'dom-mutation-record', recording: 'complete' },
@@ -60,7 +62,11 @@ async function reportOver(ids) {
   const journeyPath = join(directory, 'journey.json')
   const expectationsPath = join(directory, 'expectations.json')
   await writeFile(journeyPath, JSON.stringify(journey))
-  await writeFile(expectationsPath, JSON.stringify({ ...EXPECTATIONS, regions: {} , steps: [{ name: 'only', expect: [] }] }))
+  await writeFile(expectationsPath, JSON.stringify({
+    ...EXPECTATIONS,
+    regions: {},
+    steps: [{ name: 'only', expect: ids.map((id) => ({ region: id })) }],
+  }))
   return auditJourney({ journey: journeyPath, expectations: expectationsPath, now: NOW })
 }
 
@@ -109,7 +115,11 @@ test('findings at the same location are ordered by rule id, by code unit', async
   const journeyPath = join(directory, 'journey.json')
   const expectationsPath = join(directory, 'expectations.json')
   await writeFile(journeyPath, JSON.stringify(journey))
-  await writeFile(expectationsPath, JSON.stringify({ ...EXPECTATIONS, regions: { quiet: { politeness: 'off' } }, steps: [] }))
+  await writeFile(expectationsPath, JSON.stringify({
+    ...EXPECTATIONS,
+    regions: { quiet: { politeness: 'off' } },
+    steps: [{ name: 'only', expect: [{ region: 'quiet' }] }],
+  }))
   const report = await auditJourney({ journey: journeyPath, expectations: expectationsPath, now: NOW })
   assert.deepEqual(
     report.findings.map((finding) => finding.ruleId),

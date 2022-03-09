@@ -34,6 +34,12 @@ export function stepNamed(journey, name) {
   return step
 }
 
+export function stepExpectation(expectations, name) {
+  const step = expectations.steps.find((entry) => entry.name === name)
+  if (step === undefined) throw new Error(`no step expectation named ${name}`)
+  return step
+}
+
 export function regionNamed(journey, id) {
   const region = journey.regions.find((entry) => entry.id === id)
   if (region === undefined) throw new Error(`no region ${id}`)

@@ -18,6 +18,7 @@ import {
   cleanExpectations,
   cleanJourney,
   regionNamed,
+  stepExpectation,
   ruleIds,
   runCli,
   stepNamed,
@@ -76,15 +77,42 @@ test('every defect rule fails the run and exits 1', async (t) => {
   }
 })
 
-test('region-off-with-updates needs the expectation to agree, or it is a mismatch instead', async () => {
-  // Guard against the previous test passing for the wrong reason: with the
-  // expectation still saying "polite", the mismatch would be what failed it.
-  const report = await auditMutated(
+test('an off region the expectations say nothing about is the team\'s choice, not a defect', async () => {
+  // `off` is a declaration. `aria-live="off"` says updates here are not to be
+  // presented, and ARIA gives role="timer" and role="marquee" that same
+  // implicit urgency -- a countdown that ticks every second is what a timer is
+  // for. This was an error-severity finding on correct markup, exit 1: the
+  // recording below is a region the team deliberately made silent, written to,
+  // with the expectations agreeing it is silent and asking nothing of it.
+  const silent = await auditMutated(
     (journey) => { regionNamed(journey, 'save-progress').ariaLive = 'off' },
-    { expectations: (expectations) => { expectations.regions['save-progress'].politeness = 'off' } },
+    {
+      expectations: (expectations) => {
+        expectations.regions['save-progress'].politeness = 'off'
+        for (const step of expectations.steps) {
+          step.expect = step.expect.filter((entry) => entry.region !== 'save-progress')
+        }
+      },
+    },
   )
-  assert.deepEqual(ruleIds(report), ['region-off-with-updates'])
-  assert.equal(report.status, 'fail')
+  assert.deepEqual(ruleIds(silent), [], 'nothing asked of it, so nothing to report')
+  assert.equal(silent.status, 'pass')
+
+  // And the guard against the DEFECTS entry above passing for the wrong reason:
+  // with the region expectation still saying "off" there is no mismatch to fail
+  // it, so the rule has to be what fires -- and here the expectations do ask
+  // the region to carry something, by naming an update to it in a step.
+  const asked = await auditMutated(
+    (journey) => { regionNamed(journey, 'save-progress').ariaLive = 'off' },
+    {
+      expectations: (expectations) => {
+        expectations.regions['save-progress'].politeness = 'off'
+        stepExpectation(expectations, '03-fix-and-submit').expect.push({ region: 'save-progress' })
+      },
+    },
+  )
+  assert.deepEqual(ruleIds(asked), ['region-off-with-updates'])
+  assert.equal(asked.status, 'fail')
 })
 
 test('the defect table and the evidence-missing list together cover the whole catalog', () => {
