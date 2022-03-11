@@ -180,6 +180,22 @@ region with some other role, with no role and no `aria-live`, or with an
 does **not** determine: the run is incomplete and the expectation for that region
 is reported as not checked. It is never assumed to be polite.
 
+### `off` is a declaration, not a mistake
+
+`aria-live="off"` says updates to the region are not to be presented, and ARIA
+gives `role="timer"` and `role="marquee"` that same implicit urgency — a
+countdown whose text never changes is not a countdown. A write to a region that
+resolves to `off` is therefore not a defect on its own, and reporting it as one
+was a finding at error severity, exit 1, on markup the specification describes.
+
+`region-off-with-updates` is reported only where the expectations say that
+update was meant to carry something: the region is expected to be `polite` or
+`assertive`, or a step expectation names an update to it. Either way the finding
+names which clause said so. A region the expectations declare `off`, or say
+nothing about at all, is the team's deliberate choice and is left alone — as
+everything else here is, because the expectations document supplies every
+judgement this tool makes.
+
 ## Repeats
 
 Two updates are a repeat when they name the same region, carry the same text,

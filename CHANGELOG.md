@@ -17,7 +17,8 @@ First working version.
 - Expectation checks per step, including `exhaustive` steps, with a missing
   update judged a defect only when the recording can support that claim.
 - `region-created-with-content` for a region inserted and written to in the same
-  step, and `region-off-with-updates` for a region written to with no urgency.
+  step, and `region-off-with-updates` for a region that resolves to `off` and is
+  written to where the expectations asked that update to carry something.
 - A 34-rule catalog with one frozen severity table, and an evidence-missing list
   that makes any gap in the recording an `incomplete` report and exit 2.
 - Expectations document with `duplicateWindowMs`, `maxUpdatesPerStep`,
