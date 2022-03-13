@@ -448,17 +448,31 @@ export function checkJourney({ journey, policy, file, now }) {
           where,
           { suggestion: 'Record the text the region held after the change, using null when it was emptied.' },
         ))
-      } else if (!showsSomething(update.text)) {
+      } else if (update.text !== null && update.text !== '' && !showsSomething(update.text)) {
         // Not a length check in either direction: text of bidi controls or C1
         // characters has a non-zero length, survives trim(), and shows nothing
         // -- while text LONGER than any cap shows plenty, and calling that one
         // empty would be a false accusation.
         //
+        // Nor is it a check on emptiness. `null` and `""` are an update that
+        // CLEARED the region, which this schema documents as a value an
+        // exporter should record and which is an ordinary thing to do to a live
+        // region -- a status is emptied when the operation it described is
+        // over, and a region is commonly cleared before the next message is
+        // written into it. Reporting that at error severity was a defect raised
+        // on correct input. What is reported is the other case, which the
+        // evidence really does distinguish: the interface wrote SOMETHING and
+        // that something shows nothing. An empty write where the expectations
+        // wanted text is still reported, by `expected-update-missing`, which is
+        // where a judgement about what a step should have written belongs.
         findings.push(makeFinding(
           'update-text-empty',
-          msg`An update to ${update.region} in step ${step.name} left it showing no text at all.`,
+          msg`An update to ${update.region} in step ${step.name} wrote text that shows nothing at all.`,
           where,
-          { suggestion: 'Put the message in the region, or stop writing to it when there is nothing to say.' },
+          {
+            evidence: `${num(update.text.length)} character(s), none of which reach output`,
+            suggestion: 'Put the message in the region, or clear it with an empty string when there is nothing to say.',
+          },
         ))
       }
 
