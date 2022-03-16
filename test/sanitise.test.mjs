@@ -210,13 +210,39 @@ test('an update that leaves a region showing nothing is reported', async (t) => 
     })
   }
 
-  await t.test('an explicitly emptied region is also reported, and is not a crash', async () => {
-    const report = await auditMutated((journey) => {
-      stepNamed(journey, '03-fix-and-submit')
-        .updates.find((update) => update.region === 'save-progress').text = null
-    })
+  await t.test('an explicitly emptied region is NOT reported: clearing is a normal thing to do', async (inner) => {
+    // The two cases are not the same defect and this rule now separates them.
+    // Text made of stripped characters is the interface writing SOMETHING that
+    // shows nothing. `null` and "" are the interface CLEARING the region, which
+    // the schema documents as a value an exporter should record, and which is
+    // ordinary: a status is emptied once the operation it described is over,
+    // and a region is commonly cleared before the next message goes into it.
+    // Reporting that at error severity was a finding raised on correct input.
+    for (const [name, value] of [['null', null], ['the empty string', '']]) {
+      await inner.test(`text of ${name}`, async () => {
+        const report = await auditMutated((journey) => {
+          stepNamed(journey, '03-fix-and-submit')
+            .updates.find((update) => update.region === 'save-progress').text = value
+        })
+        assert.equal(report.status, 'pass')
+        assert.deepEqual(ruleIds(report), [])
+      })
+    }
+  })
+
+  await t.test('an empty write the expectations wanted text from still fails', async () => {
+    // What the rule above gives up, the expectations keep: a judgement about
+    // what a step should have written belongs to the expectations document, and
+    // an empty write where text was expected is still exit 1.
+    const report = await auditMutated(
+      (journey) => {
+        stepNamed(journey, '02-submit-empty')
+          .updates.find((update) => update.region === 'form-errors').text = ''
+      },
+    )
     assert.equal(report.status, 'fail')
-    assert.deepEqual(ruleIds(report), ['update-text-empty'])
+    assert.ok(ruleIds(report).includes('expected-update-missing'))
+    assert.ok(!ruleIds(report).includes('update-text-empty'))
   })
 })
 
