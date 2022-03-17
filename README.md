@@ -145,8 +145,9 @@ see [The clock](#the-clock).
   the start: without it, whether the region existed before it was written to is
   not established. Use `null` when the element was never added during the
   journey.
-- An update records `region`, `text` and `atMs`. `text` may be `null` for a
-  region that was emptied; `atMs` is milliseconds from the start of the journey.
+- An update records `region`, `text` and `atMs`. `text` may be `null` or `""`
+  for a region that was emptied, which is an ordinary thing to do and is not
+  reported as a defect; `atMs` is milliseconds from the start of the journey.
 
 ### Absent is not the same as not captured
 
@@ -195,6 +196,18 @@ names which clause said so. A region the expectations declare `off`, or say
 nothing about at all, is the team's deliberate choice and is left alone — as
 everything else here is, because the expectations document supplies every
 judgement this tool makes.
+
+### Writing nothing and clearing are not the same thing
+
+`update-text-empty` is about an update that wrote **something** which shows
+nothing: text made only of C0 or C1 characters, bidi controls or the line
+separators has a non-zero length, survives `trim()`, and leaves the region
+blank. The finding says how many characters none of which reach output.
+
+`null` and `""` are the other thing — the interface **cleared** the region.
+Neither is reported. An empty write where the expectations wanted text is still
+exit 1, through `expected-update-missing`, because what a step should have
+written is a question for the expectations rather than for a built-in opinion.
 
 ## Repeats
 
