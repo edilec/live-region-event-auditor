@@ -136,8 +136,9 @@ test('the duplicate walk is ordered by recorded time, not by the order in the fi
     steps: [{
       name: 'only',
       updates: [
-        { region: 'status', text: 'Saved', atMs: 900 },
+        { region: 'status', text: 'Saved', atMs: 5000 },
         { region: 'status', text: 'Loading', atMs: 100 },
+        { region: 'status', text: 'Saved', atMs: 900 },
         { region: 'status', text: 'Saved', atMs: 1000 },
       ],
     }],
@@ -148,10 +149,18 @@ test('the duplicate walk is ordered by recorded time, not by the order in the fi
   await writeFile(journeyPath, JSON.stringify(journey))
   await writeFile(expectationsPath, JSON.stringify({ ...EXPECTATIONS, regions: { status: { politeness: 'polite' } }, steps: [] }))
   const report = await auditJourney({ journey: journeyPath, expectations: expectationsPath, now: NOW })
-  // 900 and 1000 are adjacent once ordered by time, 100ms apart; the file
-  // listed "Loading" between them.
+  // Once ordered by time the "Saved" writes are 900, 1000, 5000: one pair
+  // inside the 1000ms window, 100ms apart. The file lists 5000 FIRST, which is
+  // what makes the sort observable -- walking the file order instead measures
+  // every later write against 5000 and counts three repeats, at -4100ms,
+  // -4000ms and 100ms. Replacing the comparator with `() => 0` produced exactly
+  // that, and the version of this test it replaces stayed green through it: the
+  // file order and the time order coincided for the "Saved" pair once the
+  // repeat comparison became a predicate over pairs, so an interleaved
+  // "Loading" no longer told the two apart.
   assert.equal(report.summary.duplicateUpdates, 1)
-  assert.match(report.findings[0].message, /100ms apart/u)
+  assert.equal(report.findings.length, 1)
+  assert.match(report.findings[0].message, /same text twice 100ms apart/u)
 })
 
 test('each sort key decides on its own, and none of them is decoration', async (t) => {
