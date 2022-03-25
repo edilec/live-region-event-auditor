@@ -46,16 +46,26 @@ export const UNREADABLE_REASONS = Object.freeze([
 /**
  * The implicit urgency of the roles this tool knows.
  *
- * This is a fixed, deliberately small table, not an implementation of ARIA's
- * implicit semantics. A role outside it leaves the urgency undetermined, which
- * makes the run incomplete rather than assuming a default -- an assumed default
- * is the difference between "this region is polite" and "nobody said".
+ * These are the five live region roles of ARIA 1.2 and the implicit `aria-live`
+ * value each one carries: `alert` assertive, `log` polite, `status` polite,
+ * `marquee` off, `timer` off. A role outside the table leaves the urgency
+ * undetermined, which makes the run incomplete rather than assuming a default --
+ * an assumed default is the difference between "this region is polite" and
+ * "nobody said".
+ *
+ * `progressbar` used to be a sixth entry, mapped to polite, and it was wrong in
+ * both directions. ARIA classes `progressbar` as a range widget, not a live
+ * region role, and gives it no implicit `aria-live` at all: a progressbar with
+ * no `aria-live` attribute conveys nothing when its value changes. So the table
+ * reported `politeness-mismatch` at error severity against an expectation of
+ * `off` that was right, and -- worse -- passed a progressbar the expectations
+ * declared polite, blessing markup that in fact announces nothing. An invented
+ * default is exactly what the paragraph above says this table must not have.
  */
 export const ROLE_POLITENESS = Object.freeze({
   alert: 'assertive',
   log: 'polite',
   marquee: 'off',
-  progressbar: 'polite',
   status: 'polite',
   timer: 'off',
 })
