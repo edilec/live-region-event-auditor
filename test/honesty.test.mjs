@@ -277,15 +277,22 @@ test('results remain evidence about recorded changes', async (t) => {
     }
   })
 
-  await t.test('the urgency table is a fixed, documented list, not an ARIA implementation', () => {
-    assert.deepEqual(CATALOG.knownRoles, ['alert', 'log', 'marquee', 'progressbar', 'status', 'timer'])
+  await t.test('the urgency table is the live region roles of ARIA, and nothing this tool invented', () => {
+    // Read against the specification rather than against the other documents in
+    // this repository: ARIA 1.2 names five live region roles -- alert, log,
+    // marquee, status, timer -- and gives each the implicit `aria-live` below.
+    // A sixth entry, `progressbar` mapped to polite, agreed with the README and
+    // with the docs and was in no specification: ARIA classes `progressbar` as a
+    // range widget with no implicit `aria-live`, so the tool was passing a
+    // progressbar whose changes convey nothing.
+    assert.deepEqual(CATALOG.knownRoles, ['alert', 'log', 'marquee', 'status', 'timer'])
     assert.deepEqual(CATALOG.rolePoliteness, {
       alert: 'assertive',
       log: 'polite',
       marquee: 'off',
-      progressbar: 'polite',
       status: 'polite',
       timer: 'off',
     })
+    assert.equal(CATALOG.rolePoliteness.progressbar, undefined, 'a range widget is not a live region')
   })
 })

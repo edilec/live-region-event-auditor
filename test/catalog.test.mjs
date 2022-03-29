@@ -41,7 +41,7 @@ test('the README rule table and the severity table agree, both ways', async () =
 test('the README urgency table is the table the code applies, both ways', async () => {
   const text = await readme()
   const rows = new Map()
-  for (const match of text.matchAll(/^\| `(alert|status|log|progressbar|timer|marquee)` \| (assertive|polite|off) \|$/gmu)) {
+  for (const match of text.matchAll(/^\| `(alert|status|log|timer|marquee)` \| (assertive|polite|off) \|$/gmu)) {
     rows.set(match[1], match[2])
   }
   assert.deepEqual([...rows.keys()].sort(), [...CATALOG.knownRoles].sort())

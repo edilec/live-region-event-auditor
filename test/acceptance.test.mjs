@@ -243,7 +243,6 @@ test('polite and assertive expectations are checked', async (t) => {
       ['alert', 'assertive'],
       ['status', 'polite'],
       ['log', 'polite'],
-      ['progressbar', 'polite'],
       ['timer', 'off'],
       ['marquee', 'off'],
     ]
