@@ -19,16 +19,26 @@ own literals only. A region a team named `announcer` is data and must not stop
 the run; a sentence this tool wrote saying an update was announced must not
 ship. The `msg` tagged template is what keeps the two apart.
 
-## Why the urgency table is six roles and not the ARIA specification
+## Why the urgency table is five roles and not the ARIA specification
 
 Implementing implicit live-region semantics properly means implementing a good
 deal of ARIA, and a partial implementation that guesses is worse than none: a
 region this tool believed was polite, that a real implementation treats
 differently, would produce a confident wrong verdict.
 
-Six roles cover what live-region code actually uses, and everything outside them
-is reported as undetermined, which makes the run incomplete. That is the honest
-failure mode: the check was not made, and the report says so.
+The five live region roles of ARIA 1.2 cover what live-region code actually
+uses, and everything outside them is reported as undetermined, which makes the
+run incomplete. That is the honest failure mode: the check was not made, and the
+report says so.
+
+The table carried a sixth entry, `progressbar`, mapped to polite. That is not in
+the specification -- ARIA classes `progressbar` as a range widget with no
+implicit `aria-live` -- and it is the precise mistake the paragraph above says
+the table exists to avoid. It also failed in the direction that matters most: a
+progressbar the expectations declared polite, with no `aria-live` attribute,
+passed, so the tool blessed markup whose changes convey nothing. The entry was
+there because the tool's own documents agreed with each other; nobody had
+checked them against ARIA.
 
 ## Why `update-time-not-captured` exists
 

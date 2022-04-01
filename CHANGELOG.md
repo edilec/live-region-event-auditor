@@ -12,8 +12,10 @@ First working version.
 - Repeat detection: two updates to one region carrying the same text, no further
   apart than `duplicateWindowMs`, walked in recorded-time order. Every repeat is
   counted in `summary.duplicateUpdates` and reported individually.
-- Urgency resolution from `aria-live`, falling back to a fixed table of six
-  roles, with every undetermined case reported rather than assumed.
+- Urgency resolution from `aria-live`, falling back to the five live region
+  roles of ARIA 1.2 and their implicit values, with every undetermined case --
+  including any other role, `progressbar` among them -- reported rather than
+  assumed.
 - Expectation checks per step, including `exhaustive` steps, with a missing
   update judged a defect only when the recording can support that claim.
 - `region-created-with-content` for a region inserted and written to in the same

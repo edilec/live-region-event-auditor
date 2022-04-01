@@ -72,7 +72,7 @@ So:
   manual evidence.
 - **Not a browser driver.** It cannot produce a recording; that is your side of
   the contract.
-- **Not an ARIA implementation.** It knows the urgency of exactly six roles (see
+- **Not an ARIA implementation.** It knows the urgency of exactly five roles (see
   [Urgency](#urgency)) and refuses to guess about any other.
 - **Not a judge of wording.** Whether the text of an update is useful is outside
   this evidence.
@@ -171,9 +171,14 @@ absent, the role decides, from this fixed table:
 | `alert` | assertive |
 | `status` | polite |
 | `log` | polite |
-| `progressbar` | polite |
 | `timer` | off |
 | `marquee` | off |
+
+Those five are the live region roles of ARIA 1.2, with the implicit `aria-live`
+each one carries. `progressbar` is deliberately **not** among them: ARIA classes
+it as a range widget and gives it no implicit `aria-live`, so a progressbar with
+no `aria-live` attribute has an urgency this tool does not determine — which is
+what it now reports.
 
 That table is the whole of what this tool knows about implicit semantics. A
 region with some other role, with no role and no `aria-live`, or with an
