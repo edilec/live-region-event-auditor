@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { auditJourney, byCodeUnit, compareFindings } from '../src/index.mjs'
-import { NOW, auditMutated, stepNamed } from './helpers.mjs'
+import { NOW, auditMutated, ruleIds, stepNamed } from './helpers.mjs'
 
 /** No age limit; the only thing in play is the order of the findings. */
 const EXPECTATIONS = {
@@ -228,5 +228,80 @@ test('each sort key decides on its own, and none of them is decoration', async (
       repeats.map((entry) => /same text twice (\d+)ms apart/u.exec(entry.message)[1]),
       ['100', '120', '20'],
     )
+  })
+})
+
+test('when the enumeration is truncated, WHICH repeats are named is ordered too', async (t) => {
+  // src/checks.mjs `[...byRegion.keys()].sort(byCodeUnit)` and
+  // `[...byText.keys()].sort(byCodeUnit)`. Below the cap these two decide only
+  // the order findings are pushed in, which `sortFindings` then re-establishes
+  // -- so no document with fewer than MAX_DUPLICATE_FINDINGS repeats can tell
+  // the sorted walk from an unsorted one, and a 2522-document differential
+  // corpus did not. Past the cap they decide WHICH repeats are named at all,
+  // and that is delivered output. Both fixtures below hold 1056 repeats in two
+  // groups of 528, so the first group named takes 528 of the 1000 and the
+  // second takes 472; the groups are built so that the walk meets them in the
+  // opposite order to the code-unit one.
+  const run = async (journey, expectations) => {
+    const directory = await mkdtemp(join(tmpdir(), 'lrea-cap-'))
+    const journeyPath = join(directory, 'journey.json')
+    const expectationsPath = join(directory, 'expectations.json')
+    await writeFile(journeyPath, JSON.stringify(journey))
+    await writeFile(expectationsPath, JSON.stringify(expectations))
+    return auditJourney({ journey: journeyPath, expectations: expectationsPath, now: NOW })
+  }
+  const region = (id) => ({ id, role: 'status', ariaLive: null, presentAtStart: true })
+  const writes = (id, text, from) => Array.from({ length: 33 }, (_, i) => ({ region: id, text, atMs: from + i }))
+  const named = (report, pointer) => report.findings.filter(
+    (finding) => finding.ruleId === 'duplicate-update' && finding.location.pointer === pointer,
+  ).length
+
+  await t.test('two regions, the later-written one sorting first', async () => {
+    const report = await run({
+      schemaVersion: '1',
+      capture: { id: 'cap', source: 'dom-mutation-record', recording: 'complete' },
+      regions: [region('z-region'), region('a-region')],
+      steps: [{ name: 'only', updates: [...writes('z-region', 'Z', 1000), ...writes('a-region', 'A', 9000)] }],
+    }, {
+      ...EXPECTATIONS,
+      maxUpdatesPerStep: 100,
+      regions: { 'z-region': { politeness: 'polite' }, 'a-region': { politeness: 'polite' } },
+      steps: [],
+    })
+    assert.equal(report.summary.duplicateUpdates, 1056, 'the count is exact whatever the listing does')
+    assert.equal(named(report, '/steps/only/updates/a-region'), 528, 'a-region is walked first, by code unit')
+    assert.equal(named(report, '/steps/only/updates/z-region'), 472)
+    assert.ok(ruleIds(report).includes('duplicate-enumeration-truncated'))
+    assert.equal(report.status, 'incomplete')
+  })
+
+  await t.test('two texts in one region, the later-written one sorting first', async () => {
+    // The two texts are spaced differently -- "A" one millisecond apart and "Z"
+    // ten -- so the gap a finding reports says which group it came from without
+    // the message having to name the text. A group walked first is enumerated
+    // whole and holds 32 pairs one millisecond apart; a group truncated at 472
+    // of its 528 stops inside `current` 31 and holds only 30 of them.
+    const spaced = (text, from, step) => Array.from(
+      { length: 33 },
+      (_, i) => ({ region: 'one-region', text, atMs: from + (i * step) }),
+    )
+    const report = await run({
+      schemaVersion: '1',
+      capture: { id: 'cap', source: 'dom-mutation-record', recording: 'complete' },
+      regions: [region('one-region')],
+      steps: [{ name: 'only', updates: [...spaced('Z', 1000, 10), ...spaced('A', 9000, 1)] }],
+    }, {
+      ...EXPECTATIONS,
+      maxUpdatesPerStep: 100,
+      regions: { 'one-region': { politeness: 'polite' } },
+      steps: [],
+    })
+    assert.equal(report.summary.duplicateUpdates, 1056)
+    const gaps = report.findings
+      .filter((finding) => finding.ruleId === 'duplicate-update')
+      .map((finding) => /same text twice (\d+)ms apart/u.exec(finding.message)[1])
+    assert.equal(gaps.length, 1000)
+    assert.equal(gaps.filter((gap) => gap === '1').length, 32, '"A" is walked first and enumerated whole')
+    assert.equal(gaps.filter((gap) => gap === '320').length, 0, '"Z" is the group that ran out')
   })
 })
