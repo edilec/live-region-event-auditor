@@ -91,7 +91,7 @@ test('a recorded update is never called an announcement', async (t) => {
     assert.equal(findForbiddenClaim('the update was announced'), 'announced')
   })
 
-  await t.test('no finding in any run carries a word this tool is not entitled to', async () => {
+  await t.test('no finding in a real run carries a word this tool is not entitled to', async () => {
     const reports = [
       await auditMutated(null),
       await auditMutated((journey) => {

@@ -19,6 +19,7 @@ import {
   MANUAL_EVIDENCE_REQUIRED,
   NOT_ESTABLISHED,
   REFUSED_POLICY_KEYS,
+  effectivePoliteness,
 } from '../src/index.mjs'
 import {
   auditMutated,
@@ -238,7 +239,13 @@ test('polite and assertive expectations are checked', async (t) => {
     assert.match(findingsFor(report, 'politeness-mismatch')[0].message, /from aria-live/u)
   })
 
-  await t.test('every documented role maps to the documented urgency', async () => {
+  await t.test('every documented role maps to the documented urgency', async (inner) => {
+    // "No mismatch" is not the guarantee the name states: a role whose urgency
+    // this tool does NOT determine also produces no mismatch, because
+    // checkPoliteness returns before the expectation is compared. So the
+    // resolution is asserted directly, the absence of politeness-unknown is
+    // asserted beside it, and a wrong expectation is driven through the same
+    // path to prove the role really is what decided.
     const cases = [
       ['alert', 'assertive'],
       ['status', 'polite'],
@@ -246,17 +253,35 @@ test('polite and assertive expectations are checked', async (t) => {
       ['timer', 'off'],
       ['marquee', 'off'],
     ]
+    const asRole = (role) => (journey) => {
+      const region = regionNamed(journey, 'form-errors')
+      region.role = role
+      region.ariaLive = null
+    }
     for (const [role, politeness] of cases) {
-      const report = await auditMutated(
-        (journey) => {
-          const region = regionNamed(journey, 'form-errors')
-          region.role = role
-          region.ariaLive = null
-        },
-        { expectations: (expectations) => { expectations.regions['form-errors'].politeness = politeness } },
-      )
-      const mismatch = findingsFor(report, 'politeness-mismatch')
-      assert.equal(mismatch.length, 0, `${role} should resolve to ${politeness}`)
+      await inner.test(`${role} is ${politeness}`, async () => {
+        assert.deepEqual(
+          effectivePoliteness({ role, ariaLive: null }),
+          { ok: true, politeness, from: `role=${role}` },
+        )
+
+        const agreeing = await auditMutated(
+          asRole(role),
+          { expectations: (expectations) => { expectations.regions['form-errors'].politeness = politeness } },
+        )
+        assert.equal(findingsFor(agreeing, 'politeness-mismatch').length, 0)
+        assert.equal(findingsFor(agreeing, 'politeness-unknown').length, 0, 'the role determined it')
+        assert.equal(findingsFor(agreeing, 'politeness-value-invalid').length, 0)
+
+        const other = politeness === 'assertive' ? 'polite' : 'assertive'
+        const disagreeing = await auditMutated(
+          asRole(role),
+          { expectations: (expectations) => { expectations.regions['form-errors'].politeness = other } },
+        )
+        const mismatch = findingsFor(disagreeing, 'politeness-mismatch')
+        assert.equal(mismatch.length, 1, `${role} must be compared, not skipped`)
+        assert.equal(mismatch[0].evidence, `resolved from role=${role}`)
+      })
     }
   })
 
