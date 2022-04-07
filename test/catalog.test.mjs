@@ -14,7 +14,7 @@ import { basename, join } from 'node:path'
 import test from 'node:test'
 
 import { CATALOG, TOOL_ID, DEFAULT_LIMITS, POLITENESS_VALUES, REFUSED_POLICY_KEYS } from '../src/index.mjs'
-import { ROOT } from './helpers.mjs'
+import { ROOT, cleanExpectations, cleanJourney, runCli, runCliRaw } from './helpers.mjs'
 
 async function readme() {
   return readFile(join(ROOT, 'README.md'), 'utf8')
@@ -122,6 +122,32 @@ test('the count of warning-severity evidence-missing rules the README states is 
   const warnings = CATALOG.evidenceMissing.filter((ruleId) => CATALOG.severity[ruleId] === 'warning')
   assert.equal(warnings.length, 11)
   assert.match(text, /The eleven `warning` rules marked `yes`/u)
+})
+
+test('the README tells the truth about the clock, which a run without --now reads', async () => {
+  // The README said "Nothing here reads the wall clock on its own behalf" two
+  // sentences before saying --now "defaults to the system clock". The two
+  // contradicted each other and the first was false of the code, which is worse
+  // than silence because it reads as a guarantee. The behaviour is asserted
+  // first, so the documents are checked against the tool rather than each other.
+  const journey = await cleanJourney()
+  journey.capture.recordedAt = '2000-01-01'
+  const expectations = { ...(await cleanExpectations()), maxRecordingAgeDays: 1 }
+  const withoutNow = await runCli(journey, expectations, ['--json'])
+  assert.equal(withoutNow.code, 2, 'a run with no --now still judges age, so it did read a clock')
+  assert.ok(
+    JSON.parse(withoutNow.stdout).findings.some((finding) => finding.ruleId === 'journey-stale'),
+    'the staleness verdict is a function of the day the run happens',
+  )
+
+  const text = await readme()
+  assert.ok(
+    !/reads the wall clock on its own behalf/u.test(text),
+    'the README may not claim a clock reading the code performs',
+  )
+  assert.match(text, /a run that omits `--now` \*\*is not reproducible\*\*/u)
+  const help = await runCliRaw(['--help'])
+  assert.match(help.stderr, /Defaults to the system clock\./u)
 })
 
 test('TOOL_ID is the directory name, the package name and the tool field of the report', async () => {
