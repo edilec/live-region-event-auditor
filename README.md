@@ -176,9 +176,9 @@ absent, the role decides, from this fixed table:
 
 Those five are the live region roles of ARIA 1.2, with the implicit `aria-live`
 each one carries. `progressbar` is deliberately **not** among them: ARIA classes
-it as a range widget and gives it no implicit `aria-live`, so a progressbar with
-no `aria-live` attribute has an urgency this tool does not determine — which is
-what it now reports.
+it as a range widget and gives it no implicit `aria-live`, so a progressbar
+without an `aria-live` attribute has an urgency this tool does not determine, and
+says so.
 
 That table is the whole of what this tool knows about implicit semantics. A
 region with some other role, with no role and no `aria-live`, or with an
@@ -191,8 +191,7 @@ is reported as not checked. It is never assumed to be polite.
 `aria-live="off"` says updates to the region are not to be presented, and ARIA
 gives `role="timer"` and `role="marquee"` that same implicit urgency — a
 countdown whose text never changes is not a countdown. A write to a region that
-resolves to `off` is therefore not a defect on its own, and reporting it as one
-was a finding at error severity, exit 1, on markup the specification describes.
+resolves to `off` is therefore not a defect on its own.
 
 `region-off-with-updates` is reported only where the expectations say that
 update was meant to carry something: the region is expected to be `polite` or
@@ -207,7 +206,7 @@ judgement this tool makes.
 `update-text-empty` is about an update that wrote **something** which shows
 nothing: text made only of C0 or C1 characters, bidi controls or the line
 separators has a non-zero length, survives `trim()`, and leaves the region
-blank. The finding says how many characters none of which reach output.
+blank. The finding says how many characters, none of which reach output.
 
 `null` and `""` are the other thing — the interface **cleared** the region.
 Neither is reported. An empty write where the expectations wanted text is still

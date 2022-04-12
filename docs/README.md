@@ -40,6 +40,37 @@ passed, so the tool blessed markup whose changes convey nothing. The entry was
 there because the tool's own documents agreed with each other; nobody had
 checked them against ARIA.
 
+## Why an `off` region is only reported when the expectations ask for something
+
+`region-off-with-updates` used to fire on any write to a region that resolved to
+`off`, and that is a finding at error severity, exit 1, on markup the
+specification describes: `role="timer"` and `role="marquee"` carry an implicit
+`aria-live="off"`, and a countdown whose text never changes is not a countdown.
+It fired even when the expectations themselves declared the region `off`, which
+is a team being argued with about a choice it stated deliberately.
+
+Every other judgement this tool makes comes from the expectations, and so does
+this one. The rule needs a clause saying the update was meant to carry
+something: a `polite` or `assertive` expectation for the region, or a step
+expectation naming an update to it. Nothing about the recording alone can
+distinguish a deliberately silent region from a mistakenly silent one, and
+guessing is what the urgency table already refuses to do.
+
+## Why clearing a region is not `update-text-empty`
+
+The rule fired for any update that left the region blank, including `"text":
+null` and `""` -- the values this schema documents for a region that was
+emptied. Clearing a live region is ordinary: a status is emptied once the
+operation it described is over, and a region is commonly cleared before the next
+message goes into it. So the tool reported a defect, at error severity, against
+its own documented schema.
+
+The evidence does distinguish the case worth reporting: the interface wrote
+SOMETHING that shows nothing. Nothing is given up by the narrowing, because an
+empty write where the expectations wanted text is still exit 1 through
+`expected-update-missing`, which is where a judgement about what a step should
+have written belongs.
+
 ## Why `update-time-not-captured` exists
 
 The repeat check needs two times. Without one, an update cannot be placed inside
