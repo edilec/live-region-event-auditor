@@ -147,6 +147,10 @@ fails when it is made:
 | drop the `textUnknown` term from the absence gate | an update whose text nobody recorded is reported as an update that never happened |
 | give `effectivePoliteness` a default for an unknown role | an undetermined urgency becomes a confident one |
 | swap `byCodeUnit` for a collator | ordering becomes machine-dependent |
+| drop `progressbar` back into `ROLE_POLITENESS` | a range widget is read as a live region, and a progressbar that conveys nothing passes |
+| drop the `expectedToCarry` clause from `region-off-with-updates` | a deliberately silent region is reported as a defect at error severity |
+| widen `update-text-empty` back to any blank result | clearing a region becomes exit 1 |
+| drop the `.sort(byCodeUnit)` on the region or text keys in `checkDuplicates` | past the enumeration cap, different repeats are named |
 | move the position branch ahead of the quoting branch in `parseFailureDetail` | a document reading `at position 1` is sliced back into the message |
 | give `showsSomething` a length cap again | an update longer than the cap is reported as leaving the region showing nothing |
 | replace any one of the four sort keys with `0` | ordering stops being what the README documents |
@@ -154,17 +158,48 @@ fails when it is made:
 
 ## What the sweep is, and what it found
 
-The sweep is mechanical, and the enumeration rather than the adjective is what
-is worth reporting. Four categories, derived from the source text rather than
-from a list somebody thought of:
+The sweep is mechanical, and the **enumeration** rather than the adjective is
+what is worth reporting: a reader can re-derive a list, and cannot re-derive
+"every". An earlier note here said the guard category was "every named guard,
+refusal or validation in `src/`, neutered (61)". That sentence is accurate about
+its category and narrow about its enumeration, which is the failure mode that
+makes a sweep unreproducible: an independent line-indexed enumeration of the
+same four categories found 158 guard mutations, not 61.
 
-- every entry in `EVIDENCE_MISSING_RULES`, deleted (27)
-- every severity in `RULE_SEVERITY`, flipped one step (34)
-- every named guard, refusal or validation in `src/`, neutered (61)
-- the ordering primitive given a collator, and each sort key dropped (6)
+So the enumeration is written down as a rule, not a count. Files: every `.mjs`
+under `src/` and `bin/`. Categories:
 
-The run over this tree was 128 mutations. Eight survived, none of them an
-equivalent mutant: the repeat walk's filter on updates with no recorded time or
-text, the named required keys of a region record, the `capture.recording` value
-check, the unreadable-reason check, the sanitising of a suggestion, and three of
-the four sort keys. Each now has a test that fails when the guard is removed.
+| Category | Rule | Count |
+| --- | --- | ---: |
+| severity | every `'<rule>': '<severity>',` line inside `RULE_SEVERITY`, flipped one step | 35 |
+| evidence-missing | every entry line of `EVIDENCE_MISSING_RULES`, deleted | 28 |
+| guard | every `if (…) {` and `} else if (…) {` opener and every single-line `if (…) return/throw/continue/break`, condition replaced with `false`; plus every `findings.push(makeFinding(…))` statement, deleted | 158 |
+| ordering | `byCodeUnit` given `localeCompare` and `Intl.Collator`; each `compareFindings` key replaced with `0`; every `.sort(…)` call site other than `sortFindings` given `() => 0` | 23 |
+
+244 mutations, 244 applied, 233 caught, 11 survived.
+
+A survivor is one of two things and the report has to say which. Each was
+re-applied and run over a differential corpus of 2522 documents -- every position
+of both shipped example pairs retyped to sixteen values and deleted, over the
+recording and the expectations, plus 74 hand-built pairs reaching code the
+examples never do, plus the file-level cases a document cannot express. A
+survivor that changes any exit code or any report byte is a missing test.
+
+That found 46 missing tests, now covered. Two of them are worth naming because
+the first classification had them the wrong way round: below
+`MAX_DUPLICATE_FINDINGS` the region and text sorts in `checkDuplicates` decide
+only the order findings are pushed in, which `sortFindings` re-establishes -- but
+past the cap they decide WHICH repeats are named, and no document in the first
+corpus exceeded the cap in more than one group. Widening the corpus is what
+found them; calling them equivalent on the first pass is what the second
+enumeration existed to catch.
+
+The 11 that remain are equivalent mutants, each proved rather than assumed:
+
+| Survivor | Why nothing can tell it apart |
+| --- | --- |
+| `checks.mjs` the `named >= MAX_DUPLICATE_FINDINGS` `continue` | the inner loop breaks on the same condition, so the outer skip only avoids entering a loop that exits at once |
+| `checks.mjs` the duplicate-id, unreadable-region and expected-region sorts | they decide push order only; across 1723 reports and 7296 findings no two findings in one report compare equal under `compareFindings` while differing in any field, so the final sort fully determines the order |
+| `journey.mjs` `ROLE_POLITENESS` keys, `policy.mjs` `DEFAULT_LIMITS` keys, `rules.mjs` `EVIDENCE_MISSING_RULES` | the literal in the source is already in code-unit order, so the sort is the identity. `RULE_SEVERITY` is **not**, which is why dropping that one sort is caught |
+| `policy.mjs` the month/day range check in `parseInstant` | identical output over all 560,000 strings the grammar accepts for 14 years x month 00-99 x day 00-99 x 4 times of day: every out-of-range value shifts the year, month or date, and the `Date` round-trip below rejects exactly those. The hour/minute/second check beside it is NOT equivalent -- a minute of 60 round-trips clean -- and has its own test |
+| `rules.mjs` the string, `null` and `undefined` fast paths of `describeValue` | `String(s)` is `s`, `String(null)` is `"null"`, `String(undefined)` is `"undefined"`, checked over 40 values covering every type a JSON document can hold and several it cannot |
