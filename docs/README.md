@@ -1,0 +1,205 @@
+# Live Region Event Auditor documentation
+
+The user-facing documentation is the [README](../README.md): input shapes, the
+rule table, the urgency table, exit codes, limits and non-goals all live there so
+that there is one place to keep true.
+
+This file records the design decisions that are easy to undo by accident.
+
+## Why the vocabulary is enforced in code
+
+The one word that would make this tool dishonest is "announcement". A recording
+of element changes shows that a region was written to; it shows nothing about
+what any person was told. The two words are close enough that a report would
+drift from one to the other in a single careless sentence, and the team reading
+it would believe a check had been made that was not.
+
+So the forbidden words are checked when a finding is built, against this tool's
+own literals only. A region a team named `announcer` is data and must not stop
+the run; a sentence this tool wrote saying an update was announced must not
+ship. The `msg` tagged template is what keeps the two apart.
+
+## Why the urgency table is five roles and not the ARIA specification
+
+Implementing implicit live-region semantics properly means implementing a good
+deal of ARIA, and a partial implementation that guesses is worse than none: a
+region this tool believed was polite, that a real implementation treats
+differently, would produce a confident wrong verdict.
+
+The five live region roles of ARIA 1.2 cover what live-region code actually
+uses, and everything outside them is reported as undetermined, which makes the
+run incomplete. That is the honest failure mode: the check was not made, and the
+report says so.
+
+The table carried a sixth entry, `progressbar`, mapped to polite. That is not in
+the specification -- ARIA classes `progressbar` as a range widget with no
+implicit `aria-live` -- and it is the precise mistake the paragraph above says
+the table exists to avoid. It also failed in the direction that matters most: a
+progressbar the expectations declared polite, with no `aria-live` attribute,
+passed, so the tool blessed markup whose changes convey nothing. The entry was
+there because the tool's own documents agreed with each other; nobody had
+checked them against ARIA.
+
+## Why an `off` region is only reported when the expectations ask for something
+
+`region-off-with-updates` used to fire on any write to a region that resolved to
+`off`, and that is a finding at error severity, exit 1, on markup the
+specification describes: `role="timer"` and `role="marquee"` carry an implicit
+`aria-live="off"`, and a countdown whose text never changes is not a countdown.
+It fired even when the expectations themselves declared the region `off`, which
+is a team being argued with about a choice it stated deliberately.
+
+Every other judgement this tool makes comes from the expectations, and so does
+this one. The rule needs a clause saying the update was meant to carry
+something: a `polite` or `assertive` expectation for the region, or a step
+expectation naming an update to it. Nothing about the recording alone can
+distinguish a deliberately silent region from a mistakenly silent one, and
+guessing is what the urgency table already refuses to do.
+
+## Why clearing a region is not `update-text-empty`
+
+The rule fired for any update that left the region blank, including `"text":
+null` and `""` -- the values this schema documents for a region that was
+emptied. Clearing a live region is ordinary: a status is emptied once the
+operation it described is over, and a region is commonly cleared before the next
+message goes into it. So the tool reported a defect, at error severity, against
+its own documented schema.
+
+The evidence does distinguish the case worth reporting: the interface wrote
+SOMETHING that shows nothing. Nothing is given up by the narrowing, because an
+empty write where the expectations wanted text is still exit 1 through
+`expected-update-missing`, which is where a judgement about what a step should
+have written belongs.
+
+## Why `update-time-not-captured` exists
+
+The repeat check needs two times. Without one, an update cannot be placed inside
+or outside the window — and "cannot be placed outside" is not "is outside". An
+earlier shape of this tool would have quietly skipped such an update and
+reported no repeats, which is the tool narrowing what it checked rather than
+saying it could not check it.
+
+## Why the repeat walk sorts by time, and why sorting was not enough
+
+It did not sort, at first, and a test caught it: a recording that listed a later
+update between two repeats reported no repeat at all, because the walk followed
+file order and the two were no longer adjacent. The recording's order is the
+exporter's business; the journey's order is what the check is about.
+
+The sort keys are three integers — the recorded time, the step's position, the
+update's position — so no string comparison and no collation is involved.
+
+Sorting fixed the file order and left the same defect one level down: the walk
+still compared only TIME-ADJACENT pairs, so `A` at 1200, `B` at 1400, `A` at
+1600 inside a 1000ms window reported `duplicateUpdates: 0` and exited 0 — while
+the same three updates with the identical texts moved next to each other
+reported the repeat. The verdict turned on the interleaving, which is a
+property of nothing anybody cares about, and a status region cycling between
+two messages is exactly that shape.
+
+The README states the rule as a predicate over **pairs**, so the comparison is
+over pairs: for each update, every earlier update to the same region still
+inside the window. The walk is a two-pointer over each (region, text) group, so
+the count is `current - first` rather than the length of the enumeration, and it
+stays exact however many pairs there are.
+
+That makes the number of FINDINGS quadratic in how many times one text was
+written inside the window, while the recording itself is bounded only by
+`maxJourneyBytes`. So the enumeration is bounded at `MAX_DUPLICATE_FINDINGS`
+(1000) and `duplicate-enumeration-truncated` names the bound when it is
+reached — the contract's rule for a limit: an incomplete result naming it,
+never a silent truncation and never a pass. It is the one limit rule here that
+does not mean nothing was checked.
+
+## Why an update with no recorded text stops absence being evidence
+
+`expected-update-missing` says the step did not write what the expectations
+name. When the step DOES write to that region and only the text was never
+captured, that statement is false: the write happened, and what it carried was
+not established. The run emitted `update-text-not-captured` about that very
+update and then, in the same report, an error-severity finding saying the
+update was not there.
+
+The gate is now the whole of the question — the recording incomplete, the step
+unusable, the region unknown, **or** a candidate update for this region whose
+text nobody wrote down — and the finding says which. The sibling tool applies
+the same gate to `error-message-not-visible` for a declared error whose id the
+index could not resolve.
+
+## Why there is no `--out`
+
+The tool is read-only. Adding a destination would bring the three data-loss
+holes — a symlinked destination, a symlinked parent, a hard link to an input —
+and the guard for them, for the sake of something `> report.json` already does.
+
+## Mutations to watch
+
+Each of these is a single edit that changes real output. Each has a test that
+fails when it is made:
+
+| Edit | What it would do |
+| --- | --- |
+| delete `reasons.length === 0` from `complete` in `buildIndex` | an unobserved subtree would stop downgrading a missing update; exit 2 becomes exit 1 |
+| remove a rule from `EVIDENCE_MISSING_RULES` | a gap in the recording becomes a pass; exit 2 becomes exit 0 for the eleven warning rules |
+| drop the `timeCaptured`/`textCaptured` filter in `checkDuplicates` | an update with no time would be compared as though it had one |
+| remove the sort in `checkDuplicates` | the repeat verdict follows the order of the file |
+| compare only `group[current - 1]` in `checkDuplicates` | a repeat with different text between its halves stops being counted |
+| drop the `textUnknown` term from the absence gate | an update whose text nobody recorded is reported as an update that never happened |
+| give `effectivePoliteness` a default for an unknown role | an undetermined urgency becomes a confident one |
+| swap `byCodeUnit` for a collator | ordering becomes machine-dependent |
+| drop `progressbar` back into `ROLE_POLITENESS` | a range widget is read as a live region, and a progressbar that conveys nothing passes |
+| drop the `expectedToCarry` clause from `region-off-with-updates` | a deliberately silent region is reported as a defect at error severity |
+| widen `update-text-empty` back to any blank result | clearing a region becomes exit 1 |
+| drop the `.sort(byCodeUnit)` on the region or text keys in `checkDuplicates` | past the enumeration cap, different repeats are named |
+| move the position branch ahead of the quoting branch in `parseFailureDetail` | a document reading `at position 1` is sliced back into the message |
+| give `showsSomething` a length cap again | an update longer than the cap is reported as leaving the region showing nothing |
+| replace any one of the four sort keys with `0` | ordering stops being what the README documents |
+| drop the `UNREADABLE_REASONS` or `RECORDING_STATES` check | a typo is accepted as a documented value, and a partial recording reads as complete |
+
+## What the sweep is, and what it found
+
+The sweep is mechanical, and the **enumeration** rather than the adjective is
+what is worth reporting: a reader can re-derive a list, and cannot re-derive
+"every". An earlier note here said the guard category was "every named guard,
+refusal or validation in `src/`, neutered (61)". That sentence is accurate about
+its category and narrow about its enumeration, which is the failure mode that
+makes a sweep unreproducible: an independent line-indexed enumeration of the
+same four categories found 158 guard mutations, not 61.
+
+So the enumeration is written down as a rule, not a count. Files: every `.mjs`
+under `src/` and `bin/`. Categories:
+
+| Category | Rule | Count |
+| --- | --- | ---: |
+| severity | every `'<rule>': '<severity>',` line inside `RULE_SEVERITY`, flipped one step | 35 |
+| evidence-missing | every entry line of `EVIDENCE_MISSING_RULES`, deleted | 28 |
+| guard | every `if (…) {` and `} else if (…) {` opener and every single-line `if (…) return/throw/continue/break`, condition replaced with `false`; plus every `findings.push(makeFinding(…))` statement, deleted | 158 |
+| ordering | `byCodeUnit` given `localeCompare` and `Intl.Collator`; each `compareFindings` key replaced with `0`; every `.sort(…)` call site other than `sortFindings` given `() => 0` | 23 |
+
+244 mutations, 244 applied, 233 caught, 11 survived.
+
+A survivor is one of two things and the report has to say which. Each was
+re-applied and run over a differential corpus of 2522 documents -- every position
+of both shipped example pairs retyped to sixteen values and deleted, over the
+recording and the expectations, plus 74 hand-built pairs reaching code the
+examples never do, plus the file-level cases a document cannot express. A
+survivor that changes any exit code or any report byte is a missing test.
+
+That found 46 missing tests, now covered. Two of them are worth naming because
+the first classification had them the wrong way round: below
+`MAX_DUPLICATE_FINDINGS` the region and text sorts in `checkDuplicates` decide
+only the order findings are pushed in, which `sortFindings` re-establishes -- but
+past the cap they decide WHICH repeats are named, and no document in the first
+corpus exceeded the cap in more than one group. Widening the corpus is what
+found them; calling them equivalent on the first pass is what the second
+enumeration existed to catch.
+
+The 11 that remain are equivalent mutants, each proved rather than assumed:
+
+| Survivor | Why nothing can tell it apart |
+| --- | --- |
+| `checks.mjs` the `named >= MAX_DUPLICATE_FINDINGS` `continue` | the inner loop breaks on the same condition, so the outer skip only avoids entering a loop that exits at once |
+| `checks.mjs` the duplicate-id, unreadable-region and expected-region sorts | they decide push order only; across 1723 reports and 7296 findings no two findings in one report compare equal under `compareFindings` while differing in any field, so the final sort fully determines the order |
+| `journey.mjs` `ROLE_POLITENESS` keys, `policy.mjs` `DEFAULT_LIMITS` keys, `rules.mjs` `EVIDENCE_MISSING_RULES` | the literal in the source is already in code-unit order, so the sort is the identity. `RULE_SEVERITY` is **not**, which is why dropping that one sort is caught |
+| `policy.mjs` the month/day range check in `parseInstant` | identical output over all 560,000 strings the grammar accepts for 14 years x month 00-99 x day 00-99 x 4 times of day: every out-of-range value shifts the year, month or date, and the `Date` round-trip below rejects exactly those. The hour/minute/second check beside it is NOT equivalent -- a minute of 60 round-trips clean -- and has its own test |
+| `rules.mjs` the string, `null` and `undefined` fast paths of `describeValue` | `String(s)` is `s`, `String(null)` is `"null"`, `String(undefined)` is `"undefined"`, checked over 40 values covering every type a JSON document can hold and several it cannot |

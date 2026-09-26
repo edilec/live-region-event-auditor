@@ -1,0 +1,51 @@
+{
+  "name": "live-region-event-auditor",
+  "version": "0.1.0",
+  "description": "Report repeated updates, missing updates and urgency mismatches from a recording of the changes a journey made to the live regions of a document.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "node --check src/rules.mjs && node --check src/policy.mjs && node --check src/journey.mjs && node --check src/checks.mjs && node --check src/index.mjs && node --check bin/live-region-event-auditor.mjs && node --check test/helpers.mjs && node --check test/acceptance.test.mjs && node --check test/catalog.test.mjs && node --check test/cli.test.mjs && node --check test/evidence.test.mjs && node --check test/guards.test.mjs && node --check test/honesty.test.mjs && node --check test/ordering.test.mjs && node --check test/parse.test.mjs && node --check test/policy.test.mjs && node --check test/reader.test.mjs && node --check test/sanitise.test.mjs && node --check test/schema.test.mjs && node --check test/severity.test.mjs",
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=src/**",
+    "example": "node bin/live-region-event-auditor.mjs --journey examples/clean/journey.json --expectations examples/clean/expectations.json --now 2026-09-18",
+    "example:broken": "node bin/live-region-event-auditor.mjs --journey examples/broken/journey.json --expectations examples/broken/expectations.json --now 2026-09-18; test $? -eq 1",
+    "pack:check": "npm pack --dry-run",
+    "check": "npm run lint && npm test && npm run example && npm run example:broken && npm run pack:check"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edilec/live-region-event-auditor.git"
+  },
+  "bin": {
+    "live-region-event-auditor": "./bin/live-region-event-auditor.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "examples",
+    "docs",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "accessibility",
+    "live-region",
+    "aria-live",
+    "audit",
+    "duplicates",
+    "cli"
+  ],
+  "author": "Edilec Private Limited",
+  "bugs": {
+    "url": "https://github.com/edilec/live-region-event-auditor/issues"
+  },
+  "homepage": "https://github.com/edilec/live-region-event-auditor#readme"
+}
