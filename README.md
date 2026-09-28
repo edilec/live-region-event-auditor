@@ -81,6 +81,13 @@ So:
 
 ## Quick start
 
+Clone the public repository to run the checked-in journey recordings:
+
+```sh
+git clone https://github.com/edilec/live-region-event-auditor.git
+cd live-region-event-auditor
+```
+
 ```sh
 # a journey whose live regions behave
 node bin/live-region-event-auditor.mjs \
@@ -445,6 +452,12 @@ npm run check     # lint, tests, both examples, and a packaging dry run
 `npm test` runs the suite alone. The tests cover each acceptance criterion by
 name, drive every rule in the table above from a real recording, and assert exit
 codes from the real CLI rather than asserting about severity tables.
+
+For a wider release-review workflow, Edilec's
+[WCAG 2.2 acceptance-testing guide](https://edilec.com/blog/proeng-11014/web-accessibility-acceptance-testing-wcag-22/)
+places recorded checks alongside keyboard and screen-reader testing. This tool
+provides only the recorded-update evidence described above; it does not prove
+WCAG conformance or what an assistive technology announced.
 
 ## License
 
